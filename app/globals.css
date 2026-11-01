@@ -1,0 +1,202 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --background: #f4f7fb;
+  --foreground: #17263e;
+  --surface: rgba(255, 255, 255, 0.88);
+  --accent: #2563eb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  min-height: 100%;
+  scroll-behavior: smooth;
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(59, 130, 246, 0.10), transparent 34rem),
+    radial-gradient(ellipse at 96% 18%, rgba(124, 58, 237, 0.07), transparent 30rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  color: #fff;
+  background: #2563eb;
+}
+
+:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 3px;
+}
+
+button,
+input,
+textarea,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.nc-shell {
+  isolation: isolate;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-position: center top;
+}
+
+.nc-sidebar {
+  box-shadow: 0 18px 55px rgba(35, 70, 125, 0.13);
+  transition: box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.nc-topbar {
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+}
+
+.nc-panel {
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 5px 24px rgba(15, 35, 65, 0.045);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.nc-panel:hover {
+  border-color: rgba(96, 165, 250, 0.42);
+  box-shadow: 0 12px 32px rgba(15, 35, 65, 0.075);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nc-panel:hover {
+    transform: translateY(-1px);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(226, 232, 240, 0.55);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.42);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.62);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* NetCoop light operations theme */
+:root {
+  color-scheme: light;
+  --background: #f6f8fc;
+  --foreground: #17243b;
+  --surface: #ffffff;
+  --accent: #0891b2;
+  --accent-purple: #7c3aed;
+  --accent-yellow: #d97706;
+  --accent-red: #dc2626;
+}
+html, body { background: var(--background); color: var(--foreground); }
+body {
+  background:
+    radial-gradient(ellipse at 8% 0%, rgba(34, 211, 238, .12), transparent 32rem),
+    radial-gradient(ellipse at 96% 8%, rgba(167, 139, 250, .12), transparent 30rem),
+    radial-gradient(ellipse at 65% 100%, rgba(250, 204, 21, .055), transparent 28rem),
+    var(--background);
+}
+.nc-shell {
+  background-color: transparent;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, .045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, .045) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.nc-sidebar {
+  background: rgba(255,255,255,.88) !important;
+  border-color: rgba(226,232,240,.9) !important;
+  color: #26364f !important;
+  box-shadow: 0 18px 55px rgba(45, 70, 110, .09) !important;
+}
+.nc-topbar {
+  background: rgba(255,255,255,.82) !important;
+  border-color: rgba(226,232,240,.85) !important;
+  box-shadow: 0 8px 30px rgba(45,70,110,.045) !important;
+}
+.nc-panel {
+  background: rgba(255,255,255,.94) !important;
+  border-color: rgba(226,232,240,.9) !important;
+  box-shadow: 0 5px 24px rgba(35,55,90,.045) !important;
+  color: #17243b;
+}
+.nc-panel:hover {
+  border-color: rgba(6,182,212,.34) !important;
+  box-shadow: 0 12px 32px rgba(35,55,90,.075) !important;
+}
+/* Bring legacy dark utility classes into the light evidence/protocol panels. */
+.nc-shell [class*="bg-slate-950"],
+.nc-shell [class*="bg-slate-900"],
+.nc-shell [class*="bg-slate-800"] { background-color: #f8fafc !important; }
+.nc-shell [class*="border-slate-700"],
+.nc-shell [class*="border-slate-800"] { border-color: #e2e8f0 !important; }
+.nc-shell [class*="text-slate-100"],
+.nc-shell [class*="text-slate-200"] { color: #1e293b !important; }
+.nc-shell [class*="text-slate-300"] { color: #475569 !important; }
+.nc-shell [class*="text-violet-200"] { color: #6d28d9 !important; }
+.nc-shell [class*="text-violet-300"] { color: #7c3aed !important; }
+.nc-shell [class*="text-cyan-300"] { color: #0e7490 !important; }
+.nc-shell [class*="text-cyan-400"] { color: #0891b2 !important; }
+.nc-shell [class*="bg-cyan-500/10"] { background-color: rgba(6,182,212,.09) !important; }
+.nc-shell [class*="bg-violet-500/5"] { background-color: rgba(139,92,246,.055) !important; }
+.nc-shell input, .nc-shell textarea, .nc-shell select {
+  background-color: #fff;
+  color: #17243b;
+  border-color: #dbe3ee;
+}
+.nc-shell input::placeholder, .nc-shell textarea::placeholder { color: #94a3b8; }
+.nc-shell .recharts-cartesian-grid-horizontal line,
+.nc-shell .recharts-cartesian-grid-vertical line { stroke: #e8edf5; }
+.nc-shell .recharts-text { fill: #64748b; }
+.network-scene { background: radial-gradient(ellipse at center, rgba(34,211,238,.10), transparent 68%); }
+::-webkit-scrollbar-track { background: #eef2f7; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; background-clip: padding-box; }
+::selection { background: rgba(6,182,212,.22); color: #164e63; }
