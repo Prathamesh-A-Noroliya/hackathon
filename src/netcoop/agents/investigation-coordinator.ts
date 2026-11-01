@@ -1,197 +1,474 @@
+import {
+  selectDiagnosticAgentOrder,
+} from "./diagnostic-agent-runtime";
 import { dispatchDiagnosticAgent } from "./agent-dispatcher";
-import { getRegisteredAgents } from "./agent-registry";
-import type { AgentId, DiagnosisReport, EvidenceFinding, NetworkTelemetry } from "../types";
+import { planNextInvestigationStep } from "./autonomous-planner";
+import { getAgentRegistration } from "./agent-registry";
+import type { AgentId } from "../types";
+import type {
+  DiagnosisReport,
+  EvidenceFinding,
+} from "../types";
+
+
+import { runPerformanceAgent } from "./performance-agent";
+
+import { runInfrastructureAgent } from "./infrastructure-agent";
+
+import { runConnectivityAgent } from "./connectivity-agent";
+
 import { runFaultCorrelationAgent } from "./fault-correlation-agent";
+
 import { runHypothesisAgent } from "./hypothesis-agent";
+
 import { runVerificationAgent } from "./verification-agent";
-import { assessTopology } from "./topology-agent";
-import { AgentMessageBus, createAgentMessage } from "./agent-communication";
+
+
+import {
+  AgentMessageBus,
+  createAgentMessage,
+} from "./agent-communication";
 import { AgentTaskManager } from "./task-manager";
 
-export async function runInvestigationCoordinator(telemetry: NetworkTelemetry): Promise<DiagnosisReport> {
-  const bus = new AgentMessageBus(telemetry.incident_id);
-  const tasks = new AgentTaskManager();
-  const failed: AgentId[] = [];
-  const executionErrors: string[] = [];
+export async function runInvestigationCoordinator(
+  telemetry: Parameters<typeof runPerformanceAgent>[0]
+): Promise<DiagnosisReport> {
+  const messageBus = new AgentMessageBus(telemetry.incident_id);
 
-  // Fan out all registered specialist diagnostics concurrently. Each task has
-  // its own correlated request, bounded retry policy and isolated failure path.
-  // A failed specialist never discards valid findings returned by its peers.
-  const specialists = getRegisteredAgents().filter(agent => agent.role === "diagnostic");
-  await Promise.all(specialists.map(async (agent) => {
-    const capability = agent.capabilities[0];
-    if (!capability) {
-      failed.push(agent.id);
-      executionErrors.push(`${agent.id}: no diagnostic capability is registered.`);
-      return;
+  // Stage 1: Planner-directed diagnostic investigation.
+  const taskManager = new AgentTaskManager();
+  const completedDiagnosticAgents: AgentId[] = [];
+  const failedDiagnosticAgents: AgentId[] = [];
+  const maxInvestigationSteps = 5;
+
+  for (let step = 0; step < maxInvestigationSteps; step++) {
+    const plannerFindings = messageBus.getMessagesFor("coordinator")
+      .filter((message) => message.message_type === "response")
+      .map((message) => ({
+        agent_id: message.sender,
+        summary: message.payload.observation ?? "No observation provided.",
+        evidence: [],
+      }));
+
+    const missingTelemetry = Object.entries(telemetry.metrics)
+      .filter(([, value]) => value === undefined)
+      .map(([key]) => key);
+
+    const plan = await planNextInvestigationStep({
+      incidentId: telemetry.incident_id,
+      telemetry: telemetry as unknown as Record<string, unknown>,
+      findings: plannerFindings,
+      missingEvidence: missingTelemetry,
+      completedAgents: completedDiagnosticAgents,
+      failedAgents: failedDiagnosticAgents,
+      step,
+      maxSteps: maxInvestigationSteps,
+    });
+
+    if (plan.action === "stop") {
+      break;
     }
-    const availableEvidence = capability.evidenceTypes.filter(key =>
-      key === "topology" || key === "reachability" || key === "device_status" || key === "interface_status" || key === "neighbors"
-        ? (key === "topology" || key === "reachability" ? true : (telemetry as unknown as Record<string, unknown>)[key] !== undefined)
-        : telemetry.metrics[key as keyof NetworkTelemetry["metrics"]] !== undefined
-    );
-    const requestedEvidence = availableEvidence.length ? availableEvidence : capability.evidenceTypes;
-    let completed = false;
-    let lastFailure = "Agent did not complete after bounded retries.";
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      const request = createAgentMessage({
-        incidentId: telemetry.incident_id,
-        sender: "coordinator",
-        recipient: agent.id,
-        messageType: "request",
-        payload: {
-          requested_data: requestedEvidence,
-          evidence: [],
-          limitations: [],
-          observation: `Parallel diagnostic dispatch to ${agent.name}. Attempt ${attempt}/2.`,
-          schema_version: telemetry.schema_version ?? "1.0",
-        },
+    if (!plan.agentId || !plan.capabilityId || !plan.requestedEvidence) {
+      throw new Error("Planner returned an incomplete dispatch instruction.");
+    }
+
+    const selectedAgent = getAgentRegistration(plan.agentId as AgentId);
+
+    if (!selectedAgent || completedDiagnosticAgents.includes(selectedAgent.id)) {
+      throw new Error("Planner selected an unavailable or already completed agent.");
+    }
+
+    const request = createAgentMessage({
+      incidentId: telemetry.incident_id,
+      sender: "coordinator",
+      recipient: selectedAgent.id,
+      messageType: "request",
+      payload: {
+        requested_data: plan.requestedEvidence,
+        evidence: [],
+        limitations: [],
+        observation: plan.rationale,
+      },
+    });
+
+    const task = taskManager.createTask(request);
+
+    try {
+      messageBus.send(request);
+      taskManager.markRunning(task.task_id);
+
+      dispatchDiagnosticAgent({
+        request,
+        telemetry,
+        messageBus,
+        capabilityId: plan.capabilityId,
       });
-      bus.send(request);
-      const task = tasks.createTask(request, 10_000);
-      try {
-        tasks.markRunning(task.task_id);
-        await Promise.resolve();
-        dispatchDiagnosticAgent({ request, telemetry, messageBus: bus, capabilityId: capability.id });
-        const response = bus.getResponseFor(request.message_id, agent.id);
-        if (!response) throw new Error("No correlated response was received before the task deadline.");
-        tasks.completeFromResponse(response);
-        completed = true;
-        break;
-      } catch (error) {
-        lastFailure = error instanceof Error ? error.message : "Unknown diagnostic error.";
-        const current = tasks.getTask(task.task_id);
-        if (current && (current.status === "pending" || current.status === "running")) {
-          try { tasks.failTask(task.task_id, lastFailure); } catch { /* task already terminal */ }
-        }
+
+      const response = messageBus.getMessagesFor("coordinator").find(
+        (message) =>
+          message.message_type === "response" &&
+          message.correlation_id === request.message_id
+      );
+
+      if (!response) {
+        throw new Error("Diagnostic agent did not return a correlated response.");
       }
-    }
 
-    if (!completed) {
-      failed.push(agent.id);
-      executionErrors.push(`${agent.id}: ${lastFailure} (after 2 attempts)`);
-    }
-  }));
+      taskManager.completeFromResponse(response);
+      completedDiagnosticAgents.push(selectedAgent.id);
+    } catch (error) {
+      const currentTask = taskManager.getTask(task.task_id);
 
-  const requests = bus.getMessages().filter(m => m.sender === "coordinator" && m.message_type === "request");
-  const diagnosticFindings: EvidenceFinding[] = bus.getMessagesFor("coordinator")
-    .filter(message => message.message_type === "response" && Boolean(message.correlation_id) && requests.some(request =>
-      request.message_id === message.correlation_id && request.recipient === message.sender && request.incident_id === message.incident_id))
-    .map(message => ({
+      if (
+        currentTask &&
+        (currentTask.status === "pending" || currentTask.status === "running")
+      ) {
+        taskManager.failTask(
+          task.task_id,
+          error instanceof Error ? error.message : "Unknown agent execution error."
+        );
+      }
+
+      throw new Error(
+        `Diagnostic task for ${selectedAgent.id} failed: ${
+          error instanceof Error ? error.message : "Unknown error."
+        }`
+      );
+    }
+  }
+  // Stage 2: Accept only responses correlated to coordinator requests.
+  const communicationMessages = messageBus.getMessages();
+
+  const requests = communicationMessages.filter(
+    (message) =>
+      message.sender === "coordinator" &&
+      message.message_type === "request"
+  );
+
+  const originalFindings: EvidenceFinding[] = communicationMessages
+    .filter((response) =>
+      response.recipient === "coordinator" &&
+      response.message_type === "response" &&
+      Boolean(response.correlation_id) &&
+      requests.some(
+        (request) =>
+          request.message_id === response.correlation_id &&
+          request.recipient === response.sender &&
+          request.incident_id === response.incident_id
+      )
+    )
+    .map((message) => ({
       agent: message.sender,
       observation: message.payload.observation ?? "No observation provided.",
-      evidence: message.payload.evidence ?? [],
-      limitations: message.payload.limitations ?? [],
-      ...(message.payload.structured_evidence ? { structured_evidence: message.payload.structured_evidence } : {}),
+      evidence: message.payload.evidence,
+      limitations: message.payload.limitations,
     }));
 
-  const findings: EvidenceFinding[] = [...diagnosticFindings];
-  const correlation = runFaultCorrelationAgent(diagnosticFindings);
-  findings.push(correlation);
-  bus.send(createAgentMessage({
-    incidentId: telemetry.incident_id, sender: "fault-correlation-agent", recipient: "coordinator", messageType: "finding",
-    payload: { observation: correlation.observation, evidence: correlation.evidence, limitations: correlation.limitations },
-  }));
+  if (originalFindings.length !== completedDiagnosticAgents.length) {
+    throw new Error(
+      `Diagnostic communication incomplete: expected ${completedDiagnosticAgents.length} responses, received ${originalFindings.length}.`
+    );
+  }
 
-  const hypothesisResult = await runHypothesisAgent(telemetry.incident_id, telemetry.device, findings);
+  // Stage 3: The Hypothesis Agent evaluates the collected findings.
+  const correlationFinding = runFaultCorrelationAgent(originalFindings);
+  originalFindings.push(correlationFinding);
+
+  messageBus.send(
+    createAgentMessage({
+      incidentId: telemetry.incident_id,
+      sender: "fault-correlation-agent",
+      recipient: "coordinator",
+      messageType: "finding",
+      payload: {
+        observation: correlationFinding.observation,
+        evidence: correlationFinding.evidence,
+        limitations: correlationFinding.limitations,
+      },
+    })
+  );
+  const hypothesisResult = await runHypothesisAgent(
+    telemetry.incident_id,
+    telemetry.device,
+    originalFindings
+  );
+
   for (const hypothesis of hypothesisResult.hypotheses) {
-    bus.send(createAgentMessage({
-      incidentId: telemetry.incident_id, sender: "hypothesis-agent", recipient: "coordinator", messageType: "hypothesis",
-      payload: { hypothesis: hypothesis.explanation, confidence: hypothesis.confidence, evidence: hypothesis.supporting_evidence, limitations: [...hypothesis.contradicting_evidence, ...hypothesis.missing_evidence] },
-    }));
+    messageBus.send(
+      createAgentMessage({
+        incidentId: telemetry.incident_id,
+        sender: "hypothesis-agent",
+        recipient: "coordinator",
+        messageType: "hypothesis",
+        payload: {
+          hypothesis: hypothesis.explanation,
+          confidence: hypothesis.confidence,
+          evidence: hypothesis.supporting_evidence,
+          limitations: [
+            ...hypothesis.contradicting_evidence,
+            ...hypothesis.missing_evidence,
+          ],
+        },
+      })
+    );
   }
-  const verificationResult = await runVerificationAgent({ telemetry, findings, hypotheses: hypothesisResult.hypotheses, evidenceCatalog: hypothesisResult.evidence_catalog });
+
+  // Stage 4: The Verification Agent independently challenges hypotheses.
+  const verificationResult = await runVerificationAgent({
+    telemetry,
+    findings: originalFindings,
+    hypotheses: hypothesisResult.hypotheses,
+    evidenceCatalog: hypothesisResult.evidence_catalog,
+  });
+
+
   for (const verification of verificationResult.verifications) {
-    bus.send(createAgentMessage({
-      incidentId: telemetry.incident_id, sender: "verification-agent", recipient: "coordinator", messageType: "verification",
-      payload: { verdict: `${verification.hypothesis_id}: ${verification.verdict}. ${verification.reasoning}`, confidence: verification.confidence, evidence: [...verification.supporting_evidence, ...verification.contradicting_evidence], limitations: verification.missing_evidence },
-    }));
+    messageBus.send(
+      createAgentMessage({
+        incidentId: telemetry.incident_id,
+        sender: "verification-agent",
+        recipient: "coordinator",
+        messageType: "verification",
+        payload: {
+          verdict: `${verification.hypothesis_id}: ${verification.verdict}. ${verification.reasoning}`,
+          confidence: verification.confidence,
+          evidence: [
+            ...verification.supporting_evidence,
+            ...verification.contradicting_evidence,
+          ],
+          limitations: verification.missing_evidence,
+        },
+      })
+    );
   }
 
-  const structuredEvidence = [...new Map(
-    diagnosticFindings.flatMap(f => f.structured_evidence ?? []).map(item => [item.evidence_id, item])
-  ).values()];
-  const hasAnomaly = structuredEvidence.some(item => item.severity === "warning" || item.severity === "critical");
-  const metricCount = Object.values(telemetry.metrics).filter(value => value !== undefined).length;
-  const supported = verificationResult.verifications.filter(v => v.verdict === "supported" && v.confidence >= 0.7);
-  const leadingVerification = [...verificationResult.verifications].sort((a, b) => b.confidence - a.confidence)[0];
-  const leadingHypothesis = leadingVerification ? hypothesisResult.hypotheses.find(h => h.id === leadingVerification.hypothesis_id) : undefined;
-  const selectedVerifications = supported.length ? supported : leadingVerification ? [leadingVerification] : [];
-  const evidenceIds = [...new Set(selectedVerifications.flatMap(v => v.supporting_evidence))];
-  const evidenceCatalog = hypothesisResult.evidence_catalog;
-  const missingEvidence = [...new Set([
-    ...findings.flatMap(f => f.limitations), ...hypothesisResult.limitations, ...verificationResult.limitations,
-    ...hypothesisResult.hypotheses.flatMap(h => h.missing_evidence),
-    ...verificationResult.verifications.flatMap(v => v.missing_evidence),
-  ])];
-  const recommendations = new Set<string>();
-  const metricRecommendations: Array<[keyof NetworkTelemetry["metrics"], string]> = [
-    ["latency_ms", "Collect latency time-series and path-hop measurements."],
-    ["packet_loss_percent", "Collect packet-loss measurements at multiple points along the path."],
-    ["jitter_ms", "Collect jitter measurements over a representative time window."],
-    ["utilization_percent", "Collect interface utilization and queue statistics."],
-    ["interface_errors", "Collect interface error deltas and link state-change logs."],
-    ["queue_drops", "Collect queue-drop counters over time and inspect QoS policy."],
-    ["cpu_utilization_percent", "Collect device CPU history and process-level diagnostics."],
-    ["memory_utilization_percent", "Collect device memory history and resource alarms."],
-    ["rssi_dbm", "Collect client RSSI and access-point association measurements."],
-    ["wifi_retransmission_percent", "Collect Wi-Fi retransmission and channel utilization data."],
-    ["dns_failure_percent", "Collect DNS resolver response codes and query latency."],
-    ["dhcp_failure_percent", "Collect DHCP lease, relay and address-pool logs."],
+  // Stage 5: Coordinator collects all agent messages.
+  const allMessages = messageBus.getMessagesFor("coordinator");
+
+  const agentFindings: EvidenceFinding[] = allMessages
+    .filter((message) =>
+      message.message_type === "hypothesis" ||
+      message.message_type === "verification"
+    )
+    .map((message) => ({
+      agent: message.sender,
+      observation:
+        message.payload.hypothesis ??
+        message.payload.verdict ??
+        "No agent assessment provided.",
+      evidence: message.payload.evidence,
+      limitations: message.payload.limitations,
+    }));
+
+  const findings = [...originalFindings, ...agentFindings];
+
+  const knownEvidenceIds = new Set(
+    hypothesisResult.evidence_catalog.map((item) => item.id)
+  );
+
+  const missingEvidence = [
+    ...new Set([
+      ...findings.flatMap((finding) => finding.limitations),
+      ...hypothesisResult.limitations,
+      ...verificationResult.limitations,
+      ...hypothesisResult.hypotheses.flatMap(
+        (hypothesis) => hypothesis.missing_evidence
+      ),
+      ...verificationResult.verifications.flatMap(
+        (verification) => verification.missing_evidence
+      ),
+    ].filter((item) => !knownEvidenceIds.has(item.trim()))),
   ];
-  for (const [key, recommendation] of metricRecommendations) if (telemetry.metrics[key] === undefined) recommendations.add(recommendation);
-  for (const hypothesis of hypothesisResult.hypotheses) for (const item of hypothesis.missing_evidence) recommendations.add(`Collect additional evidence: ${item}`);
-  if (supported.length) recommendations.add("Validate the supported hypothesis against historical telemetry and device logs before corrective action.");
-  else recommendations.add("Do not treat a candidate explanation as confirmed. Collect the missing evidence and repeat the investigation.");
-  if (executionErrors.length) recommendations.add("Review agent execution errors and rerun any incomplete diagnostic tasks.");
 
-  const status: DiagnosisReport["status"] = supported.length === 1 ? "probable_cause"
-    : supported.length > 1 ? "multiple_plausible_causes"
-    : !hasAnomaly && metricCount >= 5 && failed.length === 0 ? "no_fault_detected"
-    : "insufficient_evidence";
-  const summary = status === "no_fault_detected"
-    ? `No configured diagnostic threshold was breached across ${metricCount} supplied metric(s). This is a clean snapshot, not a guarantee of end-to-end service availability.`
-    : status === "probable_cause" || status === "multiple_plausible_causes"
-      ? `${supported.length} hypothesis(es) passed the evidence-support check. They remain probable explanations, not confirmed causes; validate against historical telemetry before remediation.`
-      : `The investigation evaluated ${hypothesisResult.hypotheses.length} candidate hypothesis(es), but the available evidence is not sufficient to support a reliable root-cause conclusion.`;
+  const supportedVerifications =
+    verificationResult.verifications.filter(
+      (verification) =>
+        verification.verdict === "supported" &&
+        verification.confidence >= 0.7
+    );
 
-  const allMessages = bus.getMessages();
-  const topology = assessTopology(telemetry);
+
+  // Preserve evidence from the leading inconclusive hypothesis without
+  // promoting it to a confirmed diagnosis.
+  const leadingVerification = [...verificationResult.verifications]
+    .sort((a, b) => b.confidence - a.confidence)[0];
+
+  const leadingHypothesis = leadingVerification
+    ? hypothesisResult.hypotheses.find(
+        (item) => item.id === leadingVerification.hypothesis_id
+      )
+    : undefined;
+
+  const reportEvidenceIds = [
+    ...new Set(
+      (supportedVerifications.length > 0
+        ? supportedVerifications
+        : leadingVerification
+          ? [leadingVerification]
+          : []
+      ).flatMap((item) => item.supporting_evidence)
+    ),
+  ];const observations = originalFindings
+    .filter((finding) => finding.evidence.length > 0)
+    .map((finding) => finding.observation);
+
+  const recommendations: string[] = [];
+
+  if (telemetry.metrics.bandwidth_mbps === undefined) {
+    recommendations.push("Collect bandwidth measurements.");
+  }
+
+  if (telemetry.metrics.utilization_percent === undefined) {
+    recommendations.push("Collect network-interface utilization metrics.");
+  }
+
+  if (telemetry.metrics.interface_errors === undefined) {
+    recommendations.push("Collect network-interface error counters.");
+  }
+
+  if (telemetry.metrics.queue_drops === undefined) {
+    recommendations.push("Collect network queue-drop counters.");
+  }
+
+  if (telemetry.metrics.cpu_utilization_percent === undefined) {
+    recommendations.push("Collect CPU utilization metrics.");
+  }
+
+  if (telemetry.metrics.memory_utilization_percent === undefined) {
+    recommendations.push("Collect memory utilization metrics.");
+  }
+
+  // Merge missing-evidence requests from both reasoning agents.
+  const additionalEvidence = new Set<string>();
+
+  for (const hypothesis of hypothesisResult.hypotheses) {
+    for (const item of hypothesis.missing_evidence) {
+      const normalized = item.trim();
+      if (normalized) additionalEvidence.add(normalized);
+    }
+  }
+
+  for (const verification of verificationResult.verifications) {
+    for (const item of verification.missing_evidence) {
+      const normalized = item.trim();
+      if (normalized) additionalEvidence.add(normalized);
+    }
+  }
+
+  for (const item of additionalEvidence) {
+    recommendations.push(`Collect additional evidence: ${item}`);
+  }
+
+  if (supportedVerifications.length === 0) {
+    recommendations.push(
+      "Do not treat any root cause as confirmed. Collect the missing evidence and repeat the investigation."
+    );
+  } else {
+    recommendations.push(
+      "Validate the supported hypotheses against historical telemetry and device logs before taking corrective action."
+    );
+  }
+
+  const uniqueRecommendations = [...new Set(recommendations)];
+
+  const status: DiagnosisReport["status"] =
+    supportedVerifications.length === 1
+      ? "probable_cause"
+      : supportedVerifications.length > 1
+        ? "multiple_plausible_causes"
+        : "insufficient_evidence";
+
+  const summary = [
+    observations.join(" "),
+    hypothesisResult.hypotheses.length > 0
+      ? `The investigation evaluated ${hypothesisResult.hypotheses.length} hypothesis(es).`
+      : "No valid root-cause hypothesis was produced.",
+    `Independent verification: ${verificationResult.verifications.map((item) => `${item.hypothesis_id} is ${item.verdict}`).join("; ") || "not available"}.`,
+    supportedVerifications.length > 0
+      ? "A hypothesis passed the verification confidence threshold. Validate it against historical telemetry before remediation."
+      : "No root cause is confirmed. Elevated symptoms are not proof of their cause. Collect missing evidence and investigate again.",
+  ].filter(Boolean).join(" ");
+
   return {
     incident_id: telemetry.incident_id,
     device: telemetry.device,
     status,
-    summary,
-    suspected_root_cause: status === "no_fault_detected" ? "No fault detected in the supplied telemetry snapshot."
-      : supported.length ? hypothesisResult.hypotheses.find(h => h.id === supported[0].hypothesis_id)?.explanation ?? "Evidence-supported hypothesis unavailable."
-      : leadingHypothesis ? `Unconfirmed hypothesis: ${leadingHypothesis.explanation}` : "Insufficient evidence to establish a probable root cause.",
-    confidence: supported.length ? Math.max(...supported.map(v => v.confidence))
-      : status === "no_fault_detected" ? Math.min(0.8, 0.55 + metricCount * 0.03)
-      : leadingVerification ? Math.min(leadingVerification.confidence, leadingHypothesis?.confidence ?? leadingVerification.confidence) : 0,
-    confidence_method: "uncalibrated_model_assessment",
-    confidence_note: "This is an evidence-informed model assessment, not a statistically calibrated probability. Calibrate against a labelled validation set before interpreting it as a probability of correctness.",
-    telemetry_coverage: Math.round((metricCount / 15) * 100) / 100,
-    affected_devices: hasAnomaly ? [telemetry.device] : [],
-    supporting_evidence: evidenceIds.map(id => {
-      const ref = evidenceCatalog.find(item => item.id === id);
-      return { metric: ref?.statement.split(":")[0] ?? "unknown", value: ref?.statement.split(":").slice(1).join(":").trim() ?? "Not available", interpretation: ref?.statement ?? "Evidence reference unavailable" };
+    summary:
+      summary ||
+      "The investigation could not establish a reliable root cause.",
+
+    suspected_root_cause:
+      supportedVerifications.length > 0
+        ? hypothesisResult.hypotheses.find(
+            (item) => item.id === supportedVerifications[0].hypothesis_id
+          )?.explanation ?? "Verified hypothesis unavailable."
+        : leadingHypothesis
+          ? `Unconfirmed hypothesis: ${leadingHypothesis.explanation}`
+          : "Insufficient evidence to establish a probable root cause.",
+
+    confidence:
+      supportedVerifications.length > 0
+        ? supportedVerifications[0].confidence
+        : leadingVerification
+          ? Math.min(
+              leadingVerification.confidence,
+              leadingHypothesis?.confidence ?? leadingVerification.confidence
+            )
+          : 0,
+
+    affected_devices: [],
+
+    supporting_evidence: reportEvidenceIds.map((id) => {
+      const reference = hypothesisResult.evidence_catalog.find(
+        (item) => item.id === id
+      );
+      return {
+        metric: reference?.statement.split(":")[0] ?? "unknown",
+        value: reference?.statement.split(":").slice(1).join(":").trim() ?? "Not available",
+        interpretation: reference?.statement ?? "Evidence reference unavailable",
+      };
     }),
-    alternative_causes: hypothesisResult.hypotheses.filter(h => !supported.some(v => v.hypothesis_id === h.id)).map(h => h.explanation),
-    recommended_actions: [...recommendations],
-    evidence_sources: [...new Set(diagnosticFindings.map(f => f.agent))],
-    findings,
-    evidence_catalog: evidenceCatalog,
+
+    alternative_causes: hypothesisResult.hypotheses
+      .filter((item) =>
+        !supportedVerifications.some(
+          (verification) => verification.hypothesis_id === item.id
+        )
+      )
+      .map((item) => item.explanation),
+
+    recommended_actions: uniqueRecommendations,
+
+    evidence_sources: [...new Set(originalFindings.map((item) => item.agent))],
+    // Preserve original diagnostic observations separately.
+    findings: originalFindings,
+
+    // Include the traceable evidence catalogue.
+    evidence_catalog: hypothesisResult.evidence_catalog,
+
+    // Preserve the Hypothesis Agent's independent output.
     hypotheses: hypothesisResult.hypotheses,
+
+    // Preserve the Verification Agent's independent output.
     verifications: verificationResult.verifications,
+
     missing_evidence: missingEvidence,
-    limitations: [...new Set([...findings.flatMap(f => f.limitations), ...hypothesisResult.limitations, ...verificationResult.limitations, ...executionErrors])],
-    recommendations: [...recommendations],
+
+    limitations: [
+
+      ...new Set([
+
+        ...findings.flatMap((finding) => finding.limitations),
+
+        ...hypothesisResult.limitations,
+
+        ...verificationResult.limitations,
+
+      ]),
+
+    ],
+    recommendations: uniqueRecommendations,
     generated_at: new Date().toISOString(),
-    structured_evidence: structuredEvidence,
-    agent_timeline: allMessages.map(message => ({ message_id: message.message_id, ...(message.correlation_id ? { correlation_id: message.correlation_id } : {}), sender: message.sender, recipient: message.recipient, message_type: message.message_type, timestamp: message.timestamp })),
-    topology,
-    execution_status: failed.length === 0 ? "completed" : "partial",
-    agent_failures: executionErrors,
   };
 }

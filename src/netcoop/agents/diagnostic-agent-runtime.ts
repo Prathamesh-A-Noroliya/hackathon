@@ -105,8 +105,6 @@ export function handleDiagnosticAgentRequest(input: {
       observation: finding.observation,
       evidence: finding.evidence,
       limitations: finding.limitations,
-      ...(finding.structured_evidence ? { structured_evidence: finding.structured_evidence } : {}),
-      ...(telemetry.schema_version ? { schema_version: telemetry.schema_version } : {}),
     },
   });
 

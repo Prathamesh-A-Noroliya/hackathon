@@ -17,7 +17,7 @@ import {
 
 const NetworkScene = dynamic(() => import("./components/NetworkScene"), {
   ssr: false,
-  loading: () => <div className="flex h-full items-center justify-center text-xs text-slate-500">Loading synthetic topology…</div>,
+  loading: () => <div className="flex h-full items-center justify-center text-xs text-slate-500">Loading synthetic topologyâ€¦</div>,
 });
 
 type Finding = {
@@ -56,6 +56,7 @@ type Diagnosis = {
   affected_devices: string[];
   structured_evidence?: { evidence_id: string; metric: string; value: number | string | boolean; unit?: string; severity: string; observation: string; source_agent: string }[];
   agent_timeline?: { message_id: string; correlation_id?: string; sender: string; recipient: string; message_type: string; timestamp: string }[];
+  agent_failures?: string[];
   topology?: { devices: string[]; links: { source: string; target: string }[]; limitations: string[] };
   findings: Finding[];
   evidence_catalog?: { id: string; agent: string; statement: string }[];
@@ -350,7 +351,7 @@ export default function Home() {
     { id: "verification-agent", name: "Verification Agent", detail: "Independent evidence assessment", icon: ShieldCheck },
     { id: "coordinator", name: "Coordinator", detail: "Concurrent dispatch and investigation control", icon: Network },
   ].map(agent => {
-    const failed = diagnosis?.agent_failures?.some(item => item.startsWith(agent.id));
+    const failed = diagnosis?.agent_failures?.some((item: string) => item.startsWith(agent.id)) ?? false;
     const seen = timeline.some(event => event.sender === agent.id && event.message_type !== "request");
     const specialist = ["performance-agent", "infrastructure-agent", "connectivity-agent"].includes(agent.id);
     const state = diagnosing
@@ -405,11 +406,11 @@ export default function Home() {
           <div className="rounded-2xl border border-blue-100/80 bg-gradient-to-br from-blue-50/90 via-white/90 to-violet-50/70 p-4 shadow-sm backdrop-blur-xl">
             <div className="flex items-center gap-2">
               <span className={`h-2 w-2 rounded-full ${apiHealth === "available" ? "bg-emerald-400 shadow-[0_0_9px_#34d399]" : apiHealth === "checking" ? "bg-amber-400" : "bg-rose-400"}`} />
-              <span className="text-xs font-semibold text-slate-700">Backend · {apiHealth === "checking" ? "Checking" : apiHealth === "available" ? "Available" : "Unavailable"}</span>
+              <span className="text-xs font-semibold text-slate-700">Backend Â· {apiHealth === "checking" ? "Checking" : apiHealth === "available" ? "Available" : "Unavailable"}</span>
             </div>
             <p className="mt-2 text-[11px] leading-5 text-slate-500">{apiHealth === "available" ? "The diagnosis API is responding. Chat requires an optional LLM provider; live device telemetry is not connected." : apiHealth === "checking" ? "Checking diagnosis and analyst API health..." : "One or more APIs are unavailable. Check the development server."}</p>
           </div>
-          <p className="px-2 pt-4 text-[10px] text-slate-400">NETCOOP AI · INVESTIGATION WORKSPACE</p>
+          <p className="px-2 pt-4 text-[10px] text-slate-400">NETCOOP AI Â· INVESTIGATION WORKSPACE</p>
         </div>
       </aside>
 
@@ -468,19 +469,19 @@ export default function Home() {
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <MetricCard reduceMotion={!!reduceMotion} title="Latency" value={metrics.latency_ms || "—"} unit="ms" icon={Activity} note="Sample input · threshold 150 ms" tone="amber" />
-                  <MetricCard reduceMotion={!!reduceMotion} title="Packet loss" value={metrics.packet_loss_percent || "—"} unit="%" icon={Wifi} note="Sample input · threshold 2%" tone="amber" />
-                  <MetricCard reduceMotion={!!reduceMotion} title="CPU utilization" value={metrics.cpu_utilization_percent || "—"} unit="%" icon={Cpu} note="Sample input · threshold 85%" tone="amber" />
-                  <MetricCard reduceMotion={!!reduceMotion} title="Jitter" value={metrics.jitter_ms || "—"} unit="ms" icon={Zap} note="Sample input · threshold 30 ms" tone="amber" />
+                  <MetricCard reduceMotion={!!reduceMotion} title="Latency" value={metrics.latency_ms || "â€”"} unit="ms" icon={Activity} note="Sample input Â· threshold 150 ms" tone="amber" />
+                  <MetricCard reduceMotion={!!reduceMotion} title="Packet loss" value={metrics.packet_loss_percent || "â€”"} unit="%" icon={Wifi} note="Sample input Â· threshold 2%" tone="amber" />
+                  <MetricCard reduceMotion={!!reduceMotion} title="CPU utilization" value={metrics.cpu_utilization_percent || "â€”"} unit="%" icon={Cpu} note="Sample input Â· threshold 85%" tone="amber" />
+                  <MetricCard reduceMotion={!!reduceMotion} title="Jitter" value={metrics.jitter_ms || "â€”"} unit="ms" icon={Zap} note="Sample input Â· threshold 30 ms" tone="amber" />
                 </div>
 
                 <Panel className="overflow-hidden p-0">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700/60 px-5 py-4 md:px-6">
-                    <div><h3 className="font-bold">Campus network digital twin</h3><p className="mt-1 text-xs text-slate-500">Interactive illustrative topology · synthetic nodes and links</p></div>
+                    <div><h3 className="font-bold">Campus network digital twin</h3><p className="mt-1 text-xs text-slate-500">Interactive illustrative topology Â· synthetic nodes and links</p></div>
                     <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-[10px] font-bold tracking-wider text-cyan-300">SIMULATION</span>
                   </div>
                   <div className="h-[300px] md:h-[360px]"><NetworkScene /></div>
-                  <div className="flex flex-wrap gap-4 border-t border-slate-700/60 px-5 py-3 text-[10px] text-slate-500 md:px-6"><span>● Core infrastructure</span><span>● Campus segments</span><span>Drag to orbit · Scroll to zoom</span></div>
+                  <div className="flex flex-wrap gap-4 border-t border-slate-700/60 px-5 py-3 text-[10px] text-slate-500 md:px-6"><span>â— Core infrastructure</span><span>â— Campus segments</span><span>Drag to orbit Â· Scroll to zoom</span></div>
                 </Panel>
 
                 <div className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
@@ -488,7 +489,7 @@ export default function Home() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="font-bold text-[#17263e]">Telemetry snapshot</h3>
-                        <p className="mt-1 text-xs text-slate-500">Sample/input telemetry · measurements compared with investigation thresholds</p>
+                        <p className="mt-1 text-xs text-slate-500">Sample/input telemetry Â· measurements compared with investigation thresholds</p>
                       </div>
                       <span className="rounded-lg bg-blue-50 px-3 py-2 text-[11px] font-semibold text-blue-700">Sample input</span>
                     </div>
@@ -543,7 +544,7 @@ export default function Home() {
                     {diagnosis ? (
                       <>
                         <p className="mt-3 text-lg font-bold">{diagnosis.incident_id}</p>
-                        <p className="mt-1 text-sm text-slate-500">{diagnosis.device} · {diagnosis.status.replaceAll("_", " ")}</p>
+                        <p className="mt-1 text-sm text-slate-500">{diagnosis.device} Â· {diagnosis.status.replaceAll("_", " ")}</p>
                         <button onClick={() => go("investigation")} className="mt-4 text-xs font-semibold text-blue-600 hover:text-blue-800">View report <ChevronRight className="inline" size={14} /></button>
                       </>
                     ) : (
@@ -642,7 +643,7 @@ export default function Home() {
                               <div className="flex items-center gap-2"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600"><BrainCircuit size={16} /></span><p className="text-sm font-bold capitalize">{finding.agent.replaceAll("-", " ")}</p></div>
                               <p className="mt-3 text-sm leading-6 text-slate-600">{finding.observation}</p>
                               {finding.evidence.length > 0 && <div className="mt-4"><p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Supporting evidence</p><ul className="mt-2 space-y-2">{finding.evidence.map((item, i) => <li key={i} className="flex gap-2 text-xs leading-5 text-slate-600"><CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />{item}</li>)}</ul></div>}
-                              {finding.limitations.length > 0 && <div className="mt-4 rounded-lg bg-amber-50/70 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Limitations</p><ul className="mt-2 space-y-1">{finding.limitations.map((item, i) => <li key={i} className="text-xs leading-5 text-amber-900/80">• {item}</li>)}</ul></div>}
+                              {finding.limitations.length > 0 && <div className="mt-4 rounded-lg bg-amber-50/70 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Limitations</p><ul className="mt-2 space-y-1">{finding.limitations.map((item, i) => <li key={i} className="text-xs leading-5 text-amber-900/80">â€¢ {item}</li>)}</ul></div>}
                             </motion.div>
                           ))}
                         </div>
@@ -696,20 +697,20 @@ export default function Home() {
                     <div className="grid gap-5 xl:grid-cols-2">
                       <Panel className="p-5 md:p-6">
                         <SectionTitle title="Agent communication timeline" subtitle="Recorded protocol messages from this investigation" />
-                        {diagnosis.agent_timeline?.length ? <ol className="space-y-3">{diagnosis.agent_timeline.map((event, index) => <li key={event.message_id} className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[10px] font-bold text-blue-700">{index + 1}</span><div className="min-w-0"><p className="text-xs font-semibold text-slate-700">{event.sender.replaceAll("-", " ")} → {event.recipient.replaceAll("-", " ")} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] uppercase text-slate-500">{event.message_type}</span></p><p className="mt-1 break-all text-[10px] text-slate-400">{event.correlation_id ? `correlation: ${event.correlation_id}` : `message: ${event.message_id}`}</p></div></li>)}</ol> : <p className="text-sm text-slate-500">No protocol events were recorded.</p>}
+                        {diagnosis.agent_timeline?.length ? <ol className="space-y-3">{diagnosis.agent_timeline.map((event, index) => <li key={event.message_id} className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[10px] font-bold text-blue-700">{index + 1}</span><div className="min-w-0"><p className="text-xs font-semibold text-slate-700">{event.sender.replaceAll("-", " ")} â†’ {event.recipient.replaceAll("-", " ")} <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[9px] uppercase text-slate-500">{event.message_type}</span></p><p className="mt-1 break-all text-[10px] text-slate-400">{event.correlation_id ? `correlation: ${event.correlation_id}` : `message: ${event.message_id}`}</p></div></li>)}</ol> : <p className="text-sm text-slate-500">No protocol events were recorded.</p>}
                       </Panel>
                       <Panel className="p-5 md:p-6">
                         <SectionTitle title="Topology context" subtitle="Only explicitly supplied device relationships are shown" />
-                        {diagnosis.topology?.devices?.length ? <div className="flex flex-wrap items-center gap-2">{diagnosis.topology.devices.map((name, index) => <span key={name} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">{name}{index === 0 ? " · focus" : ""}</span>)}</div> : <p className="text-sm text-slate-500">No topology data supplied.</p>}
+                        {diagnosis.topology?.devices?.length ? <div className="flex flex-wrap items-center gap-2">{diagnosis.topology.devices.map((name, index) => <span key={name} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">{name}{index === 0 ? " Â· focus" : ""}</span>)}</div> : <p className="text-sm text-slate-500">No topology data supplied.</p>}
                         <ul className="mt-4 space-y-2">{(diagnosis.topology?.limitations ?? []).map((item, index) => <li key={index} className="text-xs leading-5 text-amber-700">{item}</li>)}</ul>
                       </Panel>
                     </div>
                     {diagnosis.structured_evidence && diagnosis.structured_evidence.length > 0 && <Panel className="p-5 md:p-6"><SectionTitle title="Structured evidence ledger" subtitle="Normalized observations with severity and provenance" /><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-100 text-slate-400"><th className="pb-3 pr-4">Metric</th><th className="pb-3 pr-4">Value</th><th className="pb-3 pr-4">Severity</th><th className="pb-3">Source</th></tr></thead><tbody>{diagnosis.structured_evidence.map(item => <tr key={item.evidence_id} className="border-b border-slate-50"><td className="py-3 pr-4 font-semibold text-slate-700">{item.metric}</td><td className="py-3 pr-4 text-slate-600">{String(item.value)} {item.unit ?? ""}</td><td className="py-3 pr-4"><span className={`rounded px-2 py-1 text-[10px] font-semibold ${item.severity === "critical" ? "bg-rose-50 text-rose-700" : item.severity === "warning" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{item.severity}</span></td><td className="py-3 text-slate-500">{item.source_agent}</td></tr>)}</tbody></table></div></Panel>}
 
-                    {diagnosis.evidence_catalog && diagnosis.evidence_catalog.length > 0 && (
+                    {diagnosis.evidence_catalog && (diagnosis.evidence_catalog ?? []).length > 0 && (
                       <Panel className="p-5 md:p-6">
                         <SectionTitle title="Evidence catalogue" subtitle="Traceable references used by the investigation" action={<FileSearch size={18} className="text-blue-500" aria-hidden="true" />} />
-                        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-100 text-slate-400"><th className="pb-3 pr-4">ID</th><th className="pb-3 pr-4">Agent</th><th className="pb-3">Evidence statement</th></tr></thead><tbody>{diagnosis.evidence_catalog.map((item) => <tr key={item.id} className="border-b border-slate-50"><td className="py-3 pr-4 font-bold text-blue-700">{item.id}</td><td className="py-3 pr-4 text-slate-500">{item.agent}</td><td className="py-3 text-slate-700">{item.statement}</td></tr>)}</tbody></table></div>
+                        <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b border-slate-100 text-slate-400"><th className="pb-3 pr-4">ID</th><th className="pb-3 pr-4">Agent</th><th className="pb-3">Evidence statement</th></tr></thead><tbody>{(diagnosis.evidence_catalog ?? []).map((item) => <tr key={item.id} className="border-b border-slate-50"><td className="py-3 pr-4 font-bold text-blue-700">{item.id}</td><td className="py-3 pr-4 text-slate-500">{item.agent}</td><td className="py-3 text-slate-700">{item.statement}</td></tr>)}</tbody></table></div>
                       </Panel>
                     )}
                   </>
@@ -748,7 +749,7 @@ export default function Home() {
             {activePage === "evidence" && (
               <>
                 <div><p className="text-xs font-bold uppercase tracking-[0.17em] text-cyan-400">EXPLAINABILITY</p><h2 className="mt-2 text-3xl font-bold tracking-tight">Evidence graph<span className="text-cyan-400">.</span></h2><p className="mt-2 text-sm text-slate-400">Trace the path from telemetry observations to agent findings, hypotheses and verification.</p></div>
-                {!diagnosis ? <Panel className="p-8 text-center"><GitBranch className="mx-auto text-cyan-400" size={34}/><h3 className="mt-3 font-bold">No investigation loaded</h3><p className="mt-2 text-sm text-slate-500">Run a diagnosis to populate the evidence graph with traceable observations.</p><button onClick={() => go("diagnosis")} className="mt-5 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950">Start investigation</button></Panel> : <div className="grid gap-4 xl:grid-cols-[1fr_340px]"><Panel className="p-5 md:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">{diagnosis.incident_id}</h3><p className="text-xs text-slate-500">{diagnosis.device} · {diagnosis.evidence_catalog.length} evidence references</p></div><span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-bold uppercase text-cyan-700">{diagnosis.status.replaceAll("_", " ")}</span></div><div className="mt-6 grid gap-3 md:grid-cols-2">{diagnosis.evidence_catalog.map((item, index) => <div key={item.id} className="rounded-xl border border-slate-700 bg-slate-900/70 p-4"><div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">{item.id}</span><span className="text-[10px] text-slate-500">{item.agent}</span></div><p className="mt-2 text-sm font-semibold text-slate-100">{item.statement}</p><div className="mt-3 text-[10px] text-slate-500">Observation source: {item.agent}</div></div>)}</div><div className="mt-5 space-y-3">{(diagnosis.hypotheses ?? []).map(h => <div key={h.id} className="rounded-xl border border-violet-500/25 bg-violet-500/5 p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-violet-200">{h.id} · {h.explanation}</p><span className="text-[10px] text-violet-300">{Math.round(h.confidence * 100)}% model score</span></div><p className="mt-2 text-[10px] text-slate-400">Supporting: {h.supporting_evidence.map(id => diagnosis.evidence_catalog.find(e => e.id === id)?.statement ?? id).join(" · ") || "None recorded"}</p><p className="mt-1 text-[10px] text-slate-400">Contradicting: {h.contradicting_evidence.map(id => diagnosis.evidence_catalog.find(e => e.id === id)?.statement ?? id).join(" · ") || "None recorded"}</p><p className="mt-1 text-[10px] text-slate-500">Missing: {h.missing_evidence.join(" · ") || "None recorded"}</p></div>)}</div><div className="mt-5 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-violet-300">Leading diagnostic assessment</p><p className="mt-2 text-sm font-semibold text-slate-100">{diagnosis.suspected_root_cause}</p><p className="mt-2 text-xs leading-5 text-slate-400">{diagnosis.summary}</p></div></Panel><Panel className="p-5"><h3 className="font-bold">Hypothesis verification</h3><div className="mt-4 space-y-3">{(diagnosis.verifications ?? []).map(v => <div key={v.hypothesis_id} className="rounded-xl border border-slate-700 p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{v.hypothesis_id}</span><span className="text-[10px] uppercase text-cyan-300">{v.verdict}</span></div><p className="mt-2 text-xs leading-5 text-slate-400">{v.reasoning}</p><p className="mt-2 text-[10px] text-slate-500">Support refs: {v.supporting_evidence.length} · Contradictions: {v.contradicting_evidence.length} · Missing: {v.missing_evidence.length}</p></div>)}</div></Panel></div>}
+                {!diagnosis ? <Panel className="p-8 text-center"><GitBranch className="mx-auto text-cyan-400" size={34}/><h3 className="mt-3 font-bold">No investigation loaded</h3><p className="mt-2 text-sm text-slate-500">Run a diagnosis to populate the evidence graph with traceable observations.</p><button onClick={() => go("diagnosis")} className="mt-5 rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950">Start investigation</button></Panel> : <div className="grid gap-4 xl:grid-cols-[1fr_340px]"><Panel className="p-5 md:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-bold">{diagnosis.incident_id}</h3><p className="text-xs text-slate-500">{diagnosis.device} Â· {(diagnosis.evidence_catalog ?? []).length} evidence references</p></div><span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[10px] font-bold uppercase text-cyan-700">{diagnosis.status.replaceAll("_", " ")}</span></div><div className="mt-6 grid gap-3 md:grid-cols-2">{(diagnosis.evidence_catalog ?? []).map((item, index) => <div key={item.id} className="rounded-xl border border-slate-700 bg-slate-900/70 p-4"><div className="flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-wider text-cyan-300">{item.id}</span><span className="text-[10px] text-slate-500">{item.agent}</span></div><p className="mt-2 text-sm font-semibold text-slate-100">{item.statement}</p><div className="mt-3 text-[10px] text-slate-500">Observation source: {item.agent}</div></div>)}</div><div className="mt-5 space-y-3">{(diagnosis.hypotheses ?? []).map(h => <div key={h.id} className="rounded-xl border border-violet-500/25 bg-violet-500/5 p-4"><div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-violet-200">{h.id} Â· {h.explanation}</p><span className="text-[10px] text-violet-300">{Math.round(h.confidence * 100)}% model score</span></div><p className="mt-2 text-[10px] text-slate-400">Supporting: {h.supporting_evidence.map(id => (diagnosis.evidence_catalog ?? []).find(e => e.id === id)?.statement ?? id).join(" Â· ") || "None recorded"}</p><p className="mt-1 text-[10px] text-slate-400">Contradicting: {h.contradicting_evidence.map(id => (diagnosis.evidence_catalog ?? []).find(e => e.id === id)?.statement ?? id).join(" Â· ") || "None recorded"}</p><p className="mt-1 text-[10px] text-slate-500">Missing: {h.missing_evidence.join(" Â· ") || "None recorded"}</p></div>)}</div><div className="mt-5 rounded-xl border border-violet-500/30 bg-violet-500/5 p-4"><p className="text-[10px] font-bold uppercase tracking-wider text-violet-300">Leading diagnostic assessment</p><p className="mt-2 text-sm font-semibold text-slate-100">{diagnosis.suspected_root_cause}</p><p className="mt-2 text-xs leading-5 text-slate-400">{diagnosis.summary}</p></div></Panel><Panel className="p-5"><h3 className="font-bold">Hypothesis verification</h3><div className="mt-4 space-y-3">{(diagnosis.verifications ?? []).map(v => <div key={v.hypothesis_id} className="rounded-xl border border-slate-700 p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{v.hypothesis_id}</span><span className="text-[10px] uppercase text-cyan-300">{v.verdict}</span></div><p className="mt-2 text-xs leading-5 text-slate-400">{v.reasoning}</p><p className="mt-2 text-[10px] text-slate-500">Support refs: {v.supporting_evidence.length} Â· Contradictions: {v.contradicting_evidence.length} Â· Missing: {v.missing_evidence.length}</p></div>)}</div></Panel></div>}
               </>
             )}
 
@@ -763,7 +764,7 @@ export default function Home() {
             {activePage === "protocol" && (
               <>
                 <div><p className="text-xs font-bold uppercase tracking-[0.17em] text-cyan-400">INTEROPERABILITY</p><h2 className="mt-2 text-3xl font-bold tracking-tight">Protocol inspector<span className="text-cyan-400">.</span></h2><p className="mt-2 text-sm text-slate-400">Inspect correlated agent requests, responses and reasoning events from the latest investigation.</p></div>
-                {!diagnosis ? <Panel className="p-8 text-center"><ClipboardList className="mx-auto text-cyan-400" size={34}/><h3 className="mt-3 font-bold">No protocol trace available</h3><p className="mt-2 text-sm text-slate-500">Run a diagnosis to inspect message IDs, correlation IDs, senders and recipients.</p></Panel> : <Panel className="p-5 md:p-7"><div className="flex items-center justify-between"><div><h3 className="font-bold">{diagnosis.incident_id}</h3><p className="text-xs text-slate-500">Protocol v1.0 · {timeline.length} recorded messages</p></div><span className="rounded-full bg-cyan-500/10 px-3 py-1 text-[10px] font-bold text-cyan-300">CORRELATED TRACE</span></div><div className="mt-5 space-y-3">{timeline.map((event, index) => <div key={event.message_id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-bold text-slate-100">{event.sender} <span className="text-cyan-400">→</span> {event.recipient}</span><span className="rounded bg-slate-800 px-2 py-1 text-[9px] font-bold uppercase text-cyan-300">{event.message_type}</span></div><div className="mt-2 grid gap-1 text-[10px] text-slate-500 md:grid-cols-2"><span>Message ID: {event.message_id}</span><span>Correlation: {event.correlation_id ?? "Root message"}</span><span>Timestamp: {new Date(event.timestamp).toLocaleString()}</span><span>Sequence: {index + 1}</span></div></div>)}</div></Panel>}
+                {!diagnosis ? <Panel className="p-8 text-center"><ClipboardList className="mx-auto text-cyan-400" size={34}/><h3 className="mt-3 font-bold">No protocol trace available</h3><p className="mt-2 text-sm text-slate-500">Run a diagnosis to inspect message IDs, correlation IDs, senders and recipients.</p></Panel> : <Panel className="p-5 md:p-7"><div className="flex items-center justify-between"><div><h3 className="font-bold">{diagnosis.incident_id}</h3><p className="text-xs text-slate-500">Protocol v1.0 Â· {timeline.length} recorded messages</p></div><span className="rounded-full bg-cyan-500/10 px-3 py-1 text-[10px] font-bold text-cyan-300">CORRELATED TRACE</span></div><div className="mt-5 space-y-3">{timeline.map((event, index) => <div key={event.message_id} className="rounded-xl border border-slate-700 bg-slate-900/60 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs font-bold text-slate-100">{event.sender} <span className="text-cyan-400">â†’</span> {event.recipient}</span><span className="rounded bg-slate-800 px-2 py-1 text-[9px] font-bold uppercase text-cyan-300">{event.message_type}</span></div><div className="mt-2 grid gap-1 text-[10px] text-slate-500 md:grid-cols-2"><span>Message ID: {event.message_id}</span><span>Correlation: {event.correlation_id ?? "Root message"}</span><span>Timestamp: {new Date(event.timestamp).toLocaleString()}</span><span>Sequence: {index + 1}</span></div></div>)}</div></Panel>}
               </>
             )}
 
@@ -772,7 +773,7 @@ export default function Home() {
                 <div><p className="text-xs font-bold uppercase tracking-[0.17em] text-blue-600">AI ASSISTANT</p><h2 className="mt-2 text-3xl font-bold tracking-tight">Network analyst<span className="text-blue-600">.</span></h2><p className="mt-2 text-sm text-slate-500">Ask questions about network symptoms, protocols and diagnostic findings.</p></div>
                 <Panel className="mx-auto flex min-h-[620px] max-w-4xl flex-col overflow-hidden">
                   <div className="flex items-center justify-between border-b border-slate-100 p-5">
-                    <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white"><Sparkles size={19} /></div><div><p className="text-sm font-bold">NetCoop AI Analyst</p><p className="text-[11px] text-slate-500">Context-aware analyst · uses the active incident report when available</p></div></div>
+                    <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white"><Sparkles size={19} /></div><div><p className="text-sm font-bold">NetCoop AI Analyst</p><p className="text-[11px] text-slate-500">Context-aware analyst Â· uses the active incident report when available</p></div></div>
                     {provider && <span className="rounded-full bg-blue-50 px-3 py-1.5 text-[10px] font-semibold text-blue-700">{provider}</span>}
                   </div>
                   <div className="flex-1 space-y-4 overflow-y-auto bg-[#f8fafd] p-5 md:p-7">
@@ -799,8 +800,8 @@ export default function Home() {
             )}
 
             <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-5 text-[10px] text-slate-400">
-              <span>NetCoop AI · Network intelligence platform</span>
-              <span>Evidence-backed analysis · Analyst-controlled remediation</span>
+              <span>NetCoop AI Â· Network intelligence platform</span>
+              <span>Evidence-backed analysis Â· Analyst-controlled remediation</span>
             </footer>
           </motion.div>
         </AnimatePresence>
@@ -808,5 +809,3 @@ export default function Home() {
     </main>
   );
 }
-
-

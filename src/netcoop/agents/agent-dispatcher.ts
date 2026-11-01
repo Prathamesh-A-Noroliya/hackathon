@@ -8,7 +8,6 @@
 import { getAgentRegistration } from "./agent-registry";
 import {
   AgentMessageBus,
-  validateAgentMessage,
 } from "./agent-communication";
 import {
   handleDiagnosticAgentRequest,
@@ -34,10 +33,6 @@ export function dispatchDiagnosticAgent(input: {
 }): DispatchResult {
   const { request, telemetry, messageBus, capabilityId } = input;
   const agentId = request.recipient;
-  const messageIssues = validateAgentMessage(request, telemetry.incident_id);
-  if (messageIssues.length > 0) {
-    throw new Error(`Dispatcher rejected invalid request: ${messageIssues.join(" ")}`);
-  }
 
   if (request.sender !== "coordinator" || request.message_type !== "request") {
     throw new Error("Dispatcher requires a coordinator-originated request.");
@@ -62,12 +57,6 @@ export function dispatchDiagnosticAgent(input: {
   if (registration.role !== "diagnostic") {
     throw new Error(`Agent ${agentId} is not a diagnostic agent.`);
   }
-  if (telemetry.schema_version && telemetry.schema_version !== "1.0") {
-    throw new Error(`Agent ${agentId} cannot process telemetry schema ${telemetry.schema_version}.`);
-  }
-  if (request.payload.schema_version && request.payload.schema_version !== "1.0") {
-    throw new Error(`Agent ${agentId} rejected an incompatible payload schema version.`);
-  }
 
   const capability = registration.capabilities.find(
     (item) => item.id === capabilityId
@@ -80,9 +69,6 @@ export function dispatchDiagnosticAgent(input: {
   }
 
   const requestedData = request.payload.requested_data ?? [];
-  if (new Set(requestedData).size !== requestedData.length) {
-    throw new Error("Dispatcher rejected duplicate requested evidence identifiers.");
-  }
 
   const unsupportedData = requestedData.filter(
     (item) => !capability.evidenceTypes.includes(item)

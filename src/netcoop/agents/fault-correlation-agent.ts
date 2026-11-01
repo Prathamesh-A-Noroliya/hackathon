@@ -1,39 +1,40 @@
-import type { EvidenceFinding, StructuredEvidence } from "../types";
+import type { EvidenceFinding } from "../types";
 
-function categoryForMetric(metric: string): string {
-  if (["latency_ms", "packet_loss_percent", "jitter_ms", "throughput_mbps", "bandwidth_mbps"].includes(metric)) return "performance";
-  if (["utilization_percent", "cpu_utilization_percent", "memory_utilization_percent", "interface_errors", "queue_drops", "device_status", "interface_status"].includes(metric)) return "infrastructure";
-  if (["rssi_dbm", "wifi_retransmission_percent"].includes(metric)) return "wireless";
-  if (metric === "dns_failure_percent") return "dns";
-  if (metric === "dhcp_failure_percent") return "dhcp";
-  return "other";
-}
+export function runFaultCorrelationAgent(
+  findings: EvidenceFinding[]
+): EvidenceFinding {
+  const evidence = findings.flatMap((finding) =>
+    finding.evidence.map((item) => ({
+      agent: finding.agent,
+      text: item,
+    }))
+  );
 
-export function runFaultCorrelationAgent(findings: EvidenceFinding[]): EvidenceFinding {
-  const byId = new Map<string, StructuredEvidence>();
-  for (const finding of findings) {
-    for (const item of finding.structured_evidence ?? []) {
-      if (!byId.has(item.evidence_id)) byId.set(item.evidence_id, item);
-    }
-  }
-  const evidence = [...byId.values()];
-  const anomalous = evidence.filter(item => item.severity === "warning" || item.severity === "critical");
-  const categories = [...new Set(anomalous.map(item => categoryForMetric(item.metric)).filter(item => item !== "other"))];
-  const crossDomain = categories.length >= 2;
-  const observation = crossDomain
-    ? `Cross-domain anomalies were observed in ${categories.join(", ")}. These findings are related in the same incident but do not establish causation.`
-    : anomalous.length
-      ? `Anomalies were observed in the ${categories[0] ?? "available"} domain. Independent cross-domain corroboration is not yet available.`
-      : "No configured threshold breaches were identified in the structured evidence supplied to the correlation agent.";
+  const categories = [
+    { name: "performance degradation", pattern: /latency|jitter|packet loss|throughput/i },
+    { name: "infrastructure stress", pattern: /cpu|memory|queue drop|interface error|utilization/i },
+    { name: "connectivity degradation", pattern: /connectivity|reachability|interface instability/i },
+  ];
+
+  const detected = categories.filter((category) =>
+    evidence.some((item) => category.pattern.test(item.text))
+  );
+
+  const sources = [...new Set(evidence.map((item) => item.agent))];
+
+  const observation = detected.length
+    ? `Correlated ${detected.map((item) => item.name).join(", ")} across ${sources.length} evidence source(s). Correlation indicates a relationship worth investigating, not proven causation.`
+    : "No overlapping fault categories identified from available evidence.";
+
   return {
     agent: "fault-correlation-agent",
     observation,
-    evidence: anomalous.map(item => `${item.metric}: ${item.value} ${item.unit ?? ""} [${item.severity}]`),
+    evidence: detected.length ? [observation] : [],
     limitations: [
-      "Repeated measurements with the same evidence ID are deduplicated before correlation.",
-      "Cross-domain correlation indicates a relationship worth investigating; it is not proof of root cause.",
-      ...(categories.length < 2 ? ["Insufficient distinct anomalous evidence domains for cross-domain corroboration."] : []),
+      "Correlated symptoms do not independently establish root cause.",
+      ...(sources.length < 2
+        ? ["Insufficient independent evidence sources for cross-agent correlation."]
+        : []),
     ],
-    structured_evidence: evidence,
   };
 }

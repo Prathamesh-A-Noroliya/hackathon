@@ -1,44 +1,83 @@
-import type { EvidenceFinding, NetworkTelemetry, StructuredEvidence } from "../types";
-import { DIAGNOSTIC_THRESHOLDS as T, evidenceForMetric } from "./evidence-utils";
+import type {
+  EvidenceFinding,
+  NetworkTelemetry,
+} from "../types";
 
-export function runInfrastructureAgent(telemetry: NetworkTelemetry): EvidenceFinding {
-  const m = telemetry.metrics;
+export function runInfrastructureAgent(
+  telemetry: NetworkTelemetry
+): EvidenceFinding {
+  const metrics = telemetry.metrics;
+
   const evidence: string[] = [];
   const observations: string[] = [];
   const limitations: string[] = [];
-  const structured: StructuredEvidence[] = [];
-  const check = (key: keyof typeof m, label: string, unit: string, threshold: number | undefined, high: (v: number) => boolean) => {
-    const value = m[key];
-    if (value === undefined) { limitations.push(`${label} data is unavailable.`); return; }
-    const breached = high(value);
-    const text = `${label}: ${value} ${unit}${threshold !== undefined ? ` (investigation threshold: ${threshold} ${unit})` : ""}.`;
-    evidence.push(text);
-    if (breached) observations.push(`${label} threshold breach detected.`);
-    structured.push(evidenceForMetric(telemetry, key, value, unit, threshold, breached ? "warning" : "info", text, "infrastructure-agent"));
-  };
-  if (telemetry.device_status) {
-    const down = telemetry.device_status === "down" || telemetry.device_status === "degraded";
-    const text = `Device status: ${telemetry.device_status}.`;
-    evidence.push(text);
-    if (down) observations.push(`Device reports ${telemetry.device_status} status.`);
-    structured.push(evidenceForMetric(telemetry, "device_status", telemetry.device_status, "state", undefined, down ? "critical" : "info", text, "infrastructure-agent"));
-  } else limitations.push("Device status was not supplied.");
-  if (telemetry.interface_status) {
-    const down = telemetry.interface_status === "down" || telemetry.interface_status === "admin_down";
-    const text = `Interface status: ${telemetry.interface_status}.`;
-    evidence.push(text);
-    if (down) observations.push(`Interface reports ${telemetry.interface_status} state.`);
-    structured.push(evidenceForMetric(telemetry, "interface_status", telemetry.interface_status, "state", undefined, down ? "critical" : "info", text, "infrastructure-agent"));
-  } else limitations.push("Interface operational state was not supplied.");
-  check("cpu_utilization_percent", "CPU utilization", "%", T.cpu_utilization_percent, v => v >= T.cpu_utilization_percent);
-  check("memory_utilization_percent", "Memory utilization", "%", T.memory_utilization_percent, v => v >= T.memory_utilization_percent);
-  check("utilization_percent", "Interface utilization", "%", T.utilization_percent, v => v >= T.utilization_percent);
-  check("interface_errors", "Interface errors", "count", 0, v => v > 0);
-  check("queue_drops", "Queue drops", "packets", 0, v => v > 0);
+
+  if (metrics.cpu_utilization_percent !== undefined) {
+    if (metrics.cpu_utilization_percent >= 85) {
+      observations.push("High CPU utilization detected.");
+      evidence.push(
+        `CPU utilization: ${metrics.cpu_utilization_percent}%`
+      );
+    }
+  } else {
+    limitations.push("CPU utilization data is unavailable.");
+  }
+
+  if (metrics.memory_utilization_percent !== undefined) {
+    if (metrics.memory_utilization_percent >= 90) {
+      observations.push("High memory utilization detected.");
+      evidence.push(
+        `Memory utilization: ${metrics.memory_utilization_percent}%`
+      );
+    }
+  } else {
+    limitations.push("Memory utilization data is unavailable.");
+  }
+
+  if (metrics.utilization_percent !== undefined) {
+    if (metrics.utilization_percent >= 85) {
+      observations.push("High network-interface utilization detected.");
+      evidence.push(
+        `Interface utilization: ${metrics.utilization_percent}%`
+      );
+    }
+  } else {
+    limitations.push("Network-interface utilization data is unavailable.");
+  }
+
+  if (metrics.interface_errors !== undefined) {
+    if (metrics.interface_errors > 0) {
+      observations.push("Network-interface errors detected.");
+      evidence.push(
+        `Interface errors: ${metrics.interface_errors}`
+      );
+    }
+  } else {
+    limitations.push("Interface error counters are unavailable.");
+  }
+
+  if (metrics.queue_drops !== undefined) {
+    if (metrics.queue_drops > 0) {
+      observations.push("Network queue drops detected.");
+      evidence.push(
+        `Queue drops: ${metrics.queue_drops}`
+      );
+    }
+  } else {
+    limitations.push("Network queue-drop counters are unavailable.");
+  }
+
   return {
-    agent: "infrastructure-agent",
-    observation: observations.length ? observations.join(" ") : "No infrastructure threshold breach was identified in the available measurements.",
-    evidence, limitations: [...limitations, "Thresholds are configurable demonstration defaults, not universal network standards.", "A single telemetry snapshot does not establish causation."],
-    structured_evidence: structured,
+    agent: "Infrastructure Agent",
+    observation:
+      observations.length > 0
+        ? observations.join(" ")
+        : "No infrastructure threshold breaches detected in the available metrics.",
+    evidence,
+    limitations: [
+      ...limitations,
+      "Thresholds are demonstration values, not universal network standards.",
+      "A single telemetry snapshot cannot establish the root cause.",
+    ],
   };
 }

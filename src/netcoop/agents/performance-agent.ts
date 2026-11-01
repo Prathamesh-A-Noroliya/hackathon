@@ -1,39 +1,78 @@
-import type { EvidenceFinding, NetworkTelemetry, StructuredEvidence } from "../types";
-import { DIAGNOSTIC_THRESHOLDS as T, evidenceForMetric } from "./evidence-utils";
+﻿import type {
+  EvidenceFinding,
+  NetworkTelemetry,
+} from "../types";
 
-export function runPerformanceAgent(telemetry: NetworkTelemetry): EvidenceFinding {
-  const m = telemetry.metrics;
+export function runPerformanceAgent(
+  telemetry: NetworkTelemetry
+): EvidenceFinding {
+  const metrics = telemetry.metrics;
   const evidence: string[] = [];
   const limitations: string[] = [];
-  const structured: StructuredEvidence[] = [];
   const observations: string[] = [];
-  const check = (key: keyof typeof m, label: string, unit: string, threshold: number, elevated: (v: number) => boolean) => {
-    const value = m[key];
-    if (value === undefined) { limitations.push(`${label} telemetry is missing.`); return; }
-    const isHigh = elevated(value);
-    const text = `${label}: ${value} ${unit}${threshold !== undefined ? ` (investigation threshold: ${threshold} ${unit})` : ""}.`;
-    evidence.push(text);
-    if (isHigh) observations.push(`${label} is above its investigation threshold.`);
-    structured.push(evidenceForMetric(telemetry, key, value, unit, threshold, isHigh ? "warning" : "info", text, "performance-agent"));
-  };
-  check("latency_ms", "Latency", "ms", T.latency_ms, v => v >= T.latency_ms);
-  check("packet_loss_percent", "Packet loss", "%", T.packet_loss_percent, v => v >= T.packet_loss_percent);
-  check("jitter_ms", "Jitter", "ms", T.jitter_ms, v => v >= T.jitter_ms);
-  if (m.throughput_mbps !== undefined) {
-    const capacity = m.link_capacity_mbps ?? m.bandwidth_mbps;
-    const low = capacity !== undefined && capacity > 0 && m.throughput_mbps / capacity < 0.5;
-    const throughputThreshold = capacity !== undefined ? capacity * 0.5 : undefined;
-    const text = `Throughput: ${m.throughput_mbps} Mbps${capacity !== undefined ? ` against ${capacity} Mbps reported capacity (investigation threshold: ${throughputThreshold} Mbps)` : " (capacity baseline unavailable)"}.`;
-    evidence.push(text);
-    if (low) observations.push("Throughput is below 50% of the reported link capacity; confirm expected demand and measurement direction.");
-    structured.push(evidenceForMetric(telemetry, "throughput_mbps", m.throughput_mbps, "Mbps", throughputThreshold, low ? "warning" : "info", text, "performance-agent"));
-    if (capacity === undefined) limitations.push("Throughput was supplied without link capacity; relative throughput cannot be assessed.");
-  } else limitations.push("Throughput telemetry is missing.");
-  if (m.bandwidth_mbps !== undefined) evidence.push(`Reported bandwidth: ${m.bandwidth_mbps} Mbps.`);
-  else if (m.link_capacity_mbps === undefined) limitations.push("Bandwidth or link-capacity baseline is missing.");
+
+  if (metrics.latency_ms === undefined) {
+    limitations.push("Latency data is missing.");
+  } else if (metrics.latency_ms >= 150) {
+    observations.push("Elevated latency detected.");
+    evidence.push(
+      `Observed latency: ${metrics.latency_ms} ms (investigation threshold: 150 ms).`
+    );
+  } else {
+    evidence.push(
+      `Observed latency: ${metrics.latency_ms} ms (below the 150 ms investigation threshold).`
+    );
+  }
+
+  if (metrics.packet_loss_percent === undefined) {
+    limitations.push("Packet-loss data is missing.");
+  } else if (metrics.packet_loss_percent >= 2) {
+    observations.push("Elevated packet loss detected.");
+    evidence.push(
+      `Observed packet loss: ${metrics.packet_loss_percent}% (investigation threshold: 2%).`
+    );
+  } else {
+    evidence.push(
+      `Observed packet loss: ${metrics.packet_loss_percent}% (below the 2% investigation threshold).`
+    );
+  }
+
+  if (metrics.jitter_ms === undefined) {
+    limitations.push("Jitter data is missing.");
+  } else if (metrics.jitter_ms >= 30) {
+    observations.push("Elevated jitter detected.");
+    evidence.push(
+      `Observed jitter: ${metrics.jitter_ms} ms (investigation threshold: 30 ms).`
+    );
+  } else {
+    evidence.push(
+      `Observed jitter: ${metrics.jitter_ms} ms (below the 30 ms investigation threshold).`
+    );
+  }
+
+  if (metrics.bandwidth_mbps === undefined) {
+    limitations.push(
+      "Bandwidth measurements are missing; throughput adequacy cannot be assessed."
+    );
+  } else {
+    evidence.push(
+      `Reported bandwidth: ${metrics.bandwidth_mbps} Mbps.`
+    );
+    limitations.push(
+      "No configured link capacity or expected throughput baseline was provided, so bandwidth adequacy cannot be determined."
+    );
+  }
+
+  if (observations.length === 0) {
+    observations.push(
+      "No elevated latency, packet loss, or jitter was detected among the available measurements."
+    );
+  }
+
   return {
-    agent: "performance-agent",
-    observation: observations.length ? observations.join(" ") : "No elevated latency, packet loss, or jitter was identified in the available measurements.",
-    evidence, limitations, structured_evidence: structured,
+    agent: "Performance Agent",
+    observation: observations.join(" "),
+    evidence,
+    limitations,
   };
 }

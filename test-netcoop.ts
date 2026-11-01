@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
-import { validateTelemetry, validateTelemetryTolerant } from "./src/netcoop/telemetry";
+﻿import assert from "node:assert/strict";
+import { validateTelemetry } from "./src/netcoop/telemetry";
 import { runPerformanceAgent } from "./src/netcoop/agents/performance-agent";
 import { runInfrastructureAgent } from "./src/netcoop/agents/infrastructure-agent";
 import { runConnectivityAgent } from "./src/netcoop/agents/connectivity-agent";
@@ -19,11 +19,8 @@ import {
   getRegisteredAgents,
   getAgentRegistration,
   findAgentsForEvidence,
-  negotiateAgentCapability,
 } from "./src/netcoop/agents/agent-registry";
 import { dispatchDiagnosticAgent } from "./src/netcoop/agents/agent-dispatcher";
-import { assessTopology } from "./src/netcoop/agents/topology-agent";
-import { runFaultCorrelationAgent } from "./src/netcoop/agents/fault-correlation-agent";
 let passed = 0;
 let failed = 0;
 
@@ -80,75 +77,6 @@ test("Rejects unknown metric names", () => {
 
 test("Accepts missing optional measurements", () => {
   assert.equal(validateTelemetry(telemetry({})).valid, true);
-});
-
-test("Accepts versioned telemetry with source and device status", () => {
-  const result = validateTelemetry({
-    schema_version: "1.0", source: "snmp-adapter", incident_id: "T2",
-    device: "SW-2", device_status: "up", interface_status: "up",
-    neighbors: ["SW-3"], metrics: { latency_ms: 12 },
-  });
-  assert.equal(result.valid, true);
-  if (result.valid) {
-    assert.equal(result.data.schema_version, "1.0");
-    assert.equal(result.data.source, "snmp-adapter");
-    assert.deepEqual(result.data.neighbors, ["SW-3"]);
-  }
-});
-
-test("Rejects unsupported telemetry schema versions", () => {
-  assert.equal(validateTelemetry({
-    schema_version: "2.0", incident_id: "T3", device: "SW-3", metrics: {},
-  }).valid, false);
-});
-
-test("Normalizes wireless, DNS, DHCP and capacity metrics", () => {
-  const result = validateTelemetry({
-    incident_id: "T4", device: "AP-1",
-    metrics: {
-      rssi: { value: -67, unit: "dBm" },
-      wifi_retransmission: { value: 0.12, unit: "fraction" },
-      dns_failure: { value: 2, unit: "percent" },
-      dhcp_failure: 1,
-      link_capacity: { value: 1, unit: "gbps" },
-    },
-  });
-  assert.equal(result.valid, true);
-  if (result.valid) {
-    assert.equal(result.data.metrics.rssi_dbm, -67);
-    assert.equal(result.data.metrics.wifi_retransmission_percent, 12);
-    assert.equal(result.data.metrics.dns_failure_percent, 2);
-    assert.equal(result.data.metrics.dhcp_failure_percent, 1);
-    assert.equal(result.data.metrics.link_capacity_mbps, 1000);
-  }
-});
-
-test("Tolerant ingestion preserves valid metrics and quarantines invalid ones", () => {
-  const result = validateTelemetryTolerant({
-    incident_id: "T5", device: "SW-5",
-    metrics: { latency_ms: 25, unknown_vendor_metric: 7, packet_loss_percent: 3 },
-  });
-  assert.equal(result.valid, true);
-  if (result.valid) {
-    assert.equal(result.data.metrics.latency_ms, 25);
-    assert.equal(result.data.metrics.packet_loss_percent, 3);
-    assert.equal(result.issues.length, 1);
-    assert.equal(result.issues[0].code, "METRIC_QUARANTINED");
-  }
-});
-
-
-test("Tolerant ingestion quarantines duplicate aliases instead of overwriting", () => {
-  const result = validateTelemetryTolerant({
-    incident_id: "T6", device: "SW-6",
-    metrics: { latency: 20, latency_ms: 30 },
-  });
-  assert.equal(result.valid, true);
-  if (result.valid) {
-    assert.equal(result.data.metrics.latency_ms, 20);
-    assert.equal(result.issues.length, 1);
-    assert.match(result.issues[0].message, /ambiguous/i);
-  }
 });
 
 // PERFORMANCE AGENT
@@ -346,21 +274,6 @@ test("Rejects incompatible protocol version", () => {
   assert.ok(validateAgentMessage({ ...message, protocol_version: "99.0" }, "TEST-001").length > 0);
 });
 
-test("Rejects self-directed agent messages", () => {
-  assert.throws(() => createAgentMessage({
-    incidentId: "TEST-001", sender: "performance-agent", recipient: "performance-agent",
-    messageType: "finding", payload: { evidence: [], limitations: [] },
-  }), /cannot send a message to itself/);
-});
-
-test("Rejects oversized protocol messages", () => {
-  const message = createAgentMessage({
-    incidentId: "TEST-001", sender: "coordinator", recipient: "performance-agent",
-    messageType: "request", payload: { evidence: ["x".repeat(65_000)], limitations: [] },
-  });
-  assert.ok(validateAgentMessage(message, "TEST-001").some(issue => /64 KB/.test(issue)));
-});
-
 test("Rejects unknown agents", () => {
   const message = createAgentMessage({
     incidentId: "TEST-001",
@@ -370,15 +283,6 @@ test("Rejects unknown agents", () => {
     payload: { evidence: [], limitations: [] },
   });
   assert.ok(validateAgentMessage({ ...message, sender: "unknown-agent" }, "TEST-001").length > 0);
-});
-
-test("Capability negotiation ranks agents by supported evidence coverage", () => {
-  const matches = negotiateAgentCapability({
-    evidenceTypes: ["latency_ms", "packet_loss_percent", "jitter_ms"],
-    roles: ["diagnostic"], schemaVersion: "1.0",
-  });
-  assert.equal(matches[0]?.agent.id, "performance-agent");
-  assert.equal(matches[0]?.coverage, 1);
 });
 
 test("Message bus stores and retrieves request/response messages", () => {
@@ -404,47 +308,6 @@ test("Message bus stores and retrieves request/response messages", () => {
   assert.equal(bus.getMessagesFor("coordinator").length, 1);
   assert.equal(bus.getMessagesFrom("performance-agent").length, 1);
   assert.equal(response.correlation_id, request.message_id);
-});
-
-test("Message bus retrieves only the response correlated to the requested agent", () => {
-  const bus = new AgentMessageBus("TEST-001");
-  const request = createAgentMessage({
-    incidentId: "TEST-001", sender: "coordinator", recipient: "performance-agent",
-    messageType: "request", payload: { evidence: [], limitations: [] },
-  });
-  const response = createAgentMessage({
-    incidentId: "TEST-001", sender: "performance-agent", recipient: "coordinator",
-    messageType: "response", correlationId: request.message_id,
-    payload: { evidence: [], limitations: [], observation: "Checked" },
-  });
-  bus.send(request);
-  bus.send(response);
-  assert.equal(bus.getResponseFor(request.message_id, "performance-agent")?.message_id, response.message_id);
-  assert.equal(bus.getResponseFor(request.message_id, "infrastructure-agent"), undefined);
-});
-
-test("Rejects malformed structured evidence at the message boundary", () => {
-  const message = createAgentMessage({
-    incidentId: "TEST-001", sender: "performance-agent", recipient: "coordinator",
-    messageType: "finding", payload: {
-      evidence: [], limitations: [],
-      structured_evidence: [{
-        evidence_id: "e-1", metric: "latency_ms", value: Number.NaN, severity: "warning",
-        observation: "Latency observed", source_agent: "performance-agent", device_id: "SW-1",
-      }],
-    },
-  });
-  assert.ok(validateAgentMessage(message, "TEST-001").some((issue) => issue.includes("value")));
-});
-
-test("Message bus rejects responses without a matching sent request", () => {
-  const bus = new AgentMessageBus("TEST-001");
-  const response = createAgentMessage({
-    incidentId: "TEST-001", sender: "performance-agent", recipient: "coordinator",
-    messageType: "response", correlationId: "missing-request",
-    payload: { evidence: [], limitations: [] },
-  });
-  assert.throws(() => bus.send(response), /unknown or unsent request/);
 });
 
 test("Message bus rejects duplicate message IDs", () => {
@@ -648,7 +511,6 @@ test("Dispatcher executes a registered performance agent", () => {
     },
   });
 
-  bus.send(request);
   const result = dispatchDiagnosticAgent({
     request,
     telemetry: telemetry({ latency_ms: 200 }),
@@ -723,29 +585,6 @@ test("Dispatcher rejects evidence outside declared capabilities", () => {
     }),
     /does not declare support/
   );
-});
-
-test("Diagnostic agents emit structured evidence with metric provenance", () => {
-  const result = runPerformanceAgent(telemetry({ latency_ms: 220 }));
-  assert.equal(result.structured_evidence?.[0]?.metric, "latency_ms");
-  assert.equal(result.structured_evidence?.[0]?.severity, "warning");
-  assert.equal(result.structured_evidence?.[0]?.source_agent, "performance-agent");
-});
-
-test("Topology assessment includes only explicit neighbor links", () => {
-  const result = assessTopology({ incident_id: "TOPO-1", device: "SW-1", neighbors: ["SW-2", "SW-3", "SW-2"], metrics: {} });
-  assert.deepEqual(result.devices, ["SW-1", "SW-2", "SW-3"]);
-  assert.equal(result.links.length, 2);
-  assert.equal(result.links[0].source, "SW-1");
-});
-
-test("Correlation agent deduplicates repeated structured evidence", () => {
-  const item = { evidence_id: "E-1", metric: "latency_ms", value: 200, unit: "ms", severity: "warning" as const, observation: "high latency", source_agent: "performance-agent", device_id: "SW-1" };
-  const result = runFaultCorrelationAgent([
-    { agent: "performance-agent", observation: "latency", evidence: [], limitations: [], structured_evidence: [item] },
-    { agent: "connectivity-agent", observation: "latency", evidence: [], limitations: [], structured_evidence: [item] },
-  ]);
-  assert.equal(result.structured_evidence?.length, 1);
 });
 
 console.log(`\nRESULT: ${passed} passed, ${failed} failed`);

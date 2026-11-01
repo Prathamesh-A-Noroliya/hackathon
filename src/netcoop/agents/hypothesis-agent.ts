@@ -1,4 +1,4 @@
-import { generateLLMResponse, parseLLMJson } from "../llm/client";
+﻿import { generateLLMResponse, parseLLMJson } from "../llm/client";
 import type { EvidenceFinding } from "../types";
 
 export interface EvidenceReference {
@@ -101,18 +101,19 @@ function isStringArray(value: unknown): value is string[] {
     value.every((entry) => typeof entry === "string");
 }
 
-function buildEvidenceCatalog(findings: EvidenceFinding[]): EvidenceReference[] {
-  // Identical measurements repeated by different agents are one observation,
-  // not independent corroboration. Keep the first source and assign stable IDs.
-  const seen = new Set<string>();
-  const unique = findings.flatMap(finding => finding.evidence.map(statement => ({ agent: finding.agent, statement })))
-    .filter(item => {
-      const key = item.statement.trim().toLowerCase().replace(/^connectivity:\s*/, "");
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  return unique.map((item, index) => ({ id: `E${index + 1}`, ...item }));
+function buildEvidenceCatalog(
+  findings: EvidenceFinding[]
+): EvidenceReference[] {
+  return findings.flatMap((finding) =>
+    finding.evidence.map((statement) => ({
+      id: `E${0}`, // Replaced with sequential IDs below.
+      agent: finding.agent,
+      statement,
+    }))
+  ).map((reference, index) => ({
+    ...reference,
+    id: `E${index + 1}`,
+  }));
 }
 
 function parseHypothesisResult(
@@ -402,48 +403,6 @@ function parseHypothesisResult(
   };
 }
 
-function buildDeterministicHypothesisResult(evidenceCatalog: EvidenceReference[]): HypothesisResult {
-  const isAbove = (statement: string) => {
-    const match = statement.match(/:\s*(-?\d+(?:\.\d+)?)\s*[^.(]*(?:\(investigation threshold:\s*(-?\d+(?:\.\d+)?))/i);
-    if (!match) return /status: (?:down|degraded|admin_down)/i.test(statement) || /(?:errors|drops): [1-9]/i.test(statement);
-    const value = Number(match[1]); const threshold = Number(match[2]);
-    if (/(?:Interface errors|Queue drops)/i.test(statement)) return value > 0;
-    if (/signal strength|Throughput/i.test(statement)) return value <= threshold;
-    return value >= threshold;
-  };
-  const matching = (pattern: RegExp) => evidenceCatalog.filter(item => pattern.test(item.statement) && isAbove(item.statement)).map(item => item.id);
-  const candidates: Omit<Hypothesis, "id">[] = [];
-  const add = (pattern: RegExp, explanation: string, missing: string[]) => {
-    const supporting = matching(pattern);
-    if (supporting.length) candidates.push({ explanation, supporting_evidence: supporting, contradicting_evidence: [], missing_evidence: missing, confidence: Math.min(0.82, 0.48 + supporting.length * 0.08) });
-  };
-  const congestionAnchors = matching(/(?:Interface utilization|Queue drops)/i);
-  if (congestionAnchors.length) {
-    const corroboratingSymptoms = matching(/(?:Latency|Packet loss|Jitter)/i);
-    const supporting = [...new Set([...congestionAnchors, ...corroboratingSymptoms])];
-    candidates.push({ explanation: "Possible link congestion contributing to degraded performance; the available snapshot does not prove the causal direction.", supporting_evidence: supporting, contradicting_evidence: [], missing_evidence: ["Time-series link utilization and queue statistics", "Upstream and downstream interface counters"], confidence: Math.min(0.82, 0.48 + supporting.length * 0.08) });
-  } else {
-    add(/(?:Latency|Packet loss|Jitter)/i, "Possible network-path impairment; the supplied symptoms do not identify whether the cause is congestion, routing, wireless quality, or an upstream service.", ["Traceroute or path telemetry", "Time-correlated measurements from adjacent network devices"]);
-  }
-  const interfaceAnchors = matching(/(?:Interface errors|Interface status)/i);
-  if (interfaceAnchors.length) {
-    const corroboratingLoss = matching(/Packet loss/i);
-    const supporting = [...new Set([...interfaceAnchors, ...corroboratingLoss])];
-    candidates.push({ explanation: "Possible Ethernet interface fault or unstable physical/link layer.", supporting_evidence: supporting, contradicting_evidence: [], missing_evidence: ["Interface state-change logs", "Cable, transceiver and peer-port diagnostics"], confidence: Math.min(0.82, 0.48 + supporting.length * 0.08) });
-  }
-  add(/(?:Wireless signal strength|Wi-Fi retransmission)/i, "Possible weak wireless link quality affecting client connectivity.", ["Client-to-access-point association details", "Channel utilization and RF interference measurements"]);
-  add(/(?:DNS failure rate)/i, "Possible DNS service or resolver-path failure.", ["Resolver response codes and query latency", "Reachability to configured DNS resolvers"]);
-  add(/(?:DHCP failure rate)/i, "Possible DHCP service, relay, or address-pool failure.", ["DHCP lease and relay logs", "Address-pool utilization and server reachability"]);
-  add(/(?:CPU utilization|Memory utilization)/i, "Possible device resource pressure; additional time-series and process-level evidence is needed to link it to network symptoms.", ["Device resource history", "Process and control-plane health logs"]);
-  const hypotheses = candidates.slice(0, 5).map((item, index) => ({ ...item, id: `H${index + 1}` }));
-  return {
-    hypotheses,
-    reasoning_summary: hypotheses.length ? `Generated ${hypotheses.length} deterministic hypothesis(es) from threshold-breaching evidence. Confidence is a heuristic evidence-strength score, not a calibrated probability.` : "No supplied metric crossed the configured diagnostic thresholds; no fault hypothesis was promoted.",
-    limitations: ["Deterministic fallback is rule-based and uses configured demonstration thresholds.", "A single telemetry snapshot cannot prove causation."],
-    evidence_catalog: evidenceCatalog,
-  };
-}
-
 export async function runHypothesisAgent(
   incidentId: string,
   device: string,
@@ -469,27 +428,18 @@ export async function runHypothesisAgent(
     };
   }
 
-  // Deterministic evidence-grounded mode is the default; optional LLM reasoning
-  // can be enabled explicitly for experimentation.
-  if (process.env.NETCOOP_USE_LLM !== "true") return buildDeterministicHypothesisResult(evidenceCatalog);
-
-  let response;
-  try {
-    response = await generateLLMResponse({
-      systemPrompt: SYSTEM_PROMPT,
+  const response = await generateLLMResponse({
+    systemPrompt: SYSTEM_PROMPT,
     userPrompt: JSON.stringify({
       task: "Generate and compare evidence-grounded network fault hypotheses.",
       incident_id: incidentId,
       device,
       evidence_catalog: evidenceCatalog,
     }),
-      temperature: 0.2,
-    });
-    return parseHypothesisResult(response.content, evidenceCatalog);
-  } catch {
-    // An unavailable or non-conforming model must not break core diagnosis.
-    return buildDeterministicHypothesisResult(evidenceCatalog);
-  }
+    temperature: 0.2,
+  });
+
+  return parseHypothesisResult(response.content, evidenceCatalog);
 }
 
 

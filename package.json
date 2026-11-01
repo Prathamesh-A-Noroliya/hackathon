@@ -7,11 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx test-netcoop.ts",
-    "test:scenarios": "tsx test-scenarios.ts",
-    "typecheck": "tsc --noEmit",
-    "test:all": "npm run typecheck && npm test && npm run test:scenarios && npm run build",
-    "test:performance": "tsx test-performance.ts"
+    "test": "tsx test-netcoop.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

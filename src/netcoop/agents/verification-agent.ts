@@ -1,4 +1,4 @@
-import { generateLLMResponse, parseLLMJson } from "../llm/client";
+﻿import { generateLLMResponse, parseLLMJson } from "../llm/client";
 import type { EvidenceFinding, NetworkTelemetry } from "../types";
 import type {
   Hypothesis,
@@ -253,43 +253,8 @@ export async function runVerificationAgent(input: {
     };
   }
 
-  const deterministicResult = (): VerificationResult => ({
-    verifications: input.hypotheses.map(hypothesis => {
-      const validIds = new Set(input.evidenceCatalog.map(item => item.id));
-      const supporting = hypothesis.supporting_evidence.filter(id => validIds.has(id));
-      const contradicting = hypothesis.contradicting_evidence.filter(id => validIds.has(id) && !supporting.includes(id));
-      const supportingCategories = new Set(supporting.map(id => {
-        const statement = input.evidenceCatalog.find(item => item.id === id)?.statement ?? "";
-        if (/Interface utilization|Queue drops|Interface errors|Interface status|Device status|CPU utilization|Memory utilization/i.test(statement)) return "infrastructure";
-        if (/Wireless signal|Wi-Fi retransmission/i.test(statement)) return "wireless";
-        if (/DNS failure/i.test(statement)) return "dns";
-        if (/DHCP failure/i.test(statement)) return "dhcp";
-        if (/Latency|Packet loss|Jitter|Throughput|Bandwidth/i.test(statement)) return "performance";
-        return "other";
-      }));
-      const sufficientlyCorroborated = supporting.length >= 2 && supportingCategories.size >= 2 && contradicting.length === 0;
-      return {
-        hypothesis_id: hypothesis.id,
-        verdict: contradicting.length > 0 ? "challenged" as const : sufficientlyCorroborated ? "supported" as const : "inconclusive" as const,
-        supporting_evidence: supporting,
-        contradicting_evidence: contradicting,
-        missing_evidence: hypothesis.missing_evidence,
-        reasoning: sufficientlyCorroborated
-          ? `The hypothesis has ${supporting.length} supporting evidence item(s) and no recorded contradiction. This supports further validation but does not prove causation.`
-          : `There are ${supporting.length} supporting evidence item(s) across ${supportingCategories.size} evidence domain(s); cross-domain corroboration is insufficient to establish this hypothesis.`,
-        confidence: Math.min(0.82, 0.55 + supporting.length * 0.1 - contradicting.length * 0.12),
-      };
-    }),
-    overall_assessment: "Deterministic verification applied evidence-count and contradiction checks. Supported means evidence-backed, not confirmed root cause.",
-    limitations: ["Verification fallback is deterministic and not a calibrated statistical model.", "Time-series and independent device logs are needed to establish causality."],
-  });
-
-  if (process.env.NETCOOP_USE_LLM !== "true") return deterministicResult();
-
-  let response;
-  try {
-    response = await generateLLMResponse({
-      systemPrompt: SYSTEM_PROMPT,
+  const response = await generateLLMResponse({
+    systemPrompt: SYSTEM_PROMPT,
     userPrompt: JSON.stringify({
       task: "Independently challenge and verify every supplied hypothesis.",
       telemetry: input.telemetry,
@@ -297,17 +262,15 @@ export async function runVerificationAgent(input: {
       evidence_catalog: input.evidenceCatalog,
       hypotheses_to_verify: input.hypotheses,
     }),
-      temperature: 0.1,
-    });
-    return parseVerificationResult(
-      response.content,
-      input.hypotheses.map((hypothesis) => hypothesis.id),
-      input.evidenceCatalog,
-      input.hypotheses
-    );
-  } catch {
-    return deterministicResult();
-  }
+    temperature: 0.1,
+  });
+
+  return parseVerificationResult(
+    response.content,
+    input.hypotheses.map((hypothesis) => hypothesis.id),
+    input.evidenceCatalog,
+    input.hypotheses
+  );
 }
 
 

@@ -1,38 +1,56 @@
-import type { NetworkTelemetry, EvidenceFinding, StructuredEvidence } from "../types";
-import { DIAGNOSTIC_THRESHOLDS as T, evidenceForMetric } from "./evidence-utils";
+import type { NetworkTelemetry, EvidenceFinding } from "../types";
 
-export function runConnectivityAgent(telemetry: NetworkTelemetry): EvidenceFinding {
-  const m = telemetry.metrics;
+export function runConnectivityAgent(
+  telemetry: NetworkTelemetry
+): EvidenceFinding {
+  const metrics = telemetry.metrics;
   const evidence: string[] = [];
   const limitations: string[] = [];
   const observations: string[] = [];
-  const structured: StructuredEvidence[] = [];
-  const add = (metric: string, value: number, unit: string, threshold: number, high: boolean, label: string) => {
-    const text = `${label}: ${value} ${unit} (investigation threshold: ${threshold} ${unit}).`;
-    evidence.push(text);
-    if (high) observations.push(`${label} is outside the expected investigation range.`);
-    structured.push(evidenceForMetric(telemetry, metric, value, unit, threshold, high ? "warning" : "info", text, "connectivity-agent"));
-  };
-  if (m.rssi_dbm !== undefined) add("rssi_dbm", m.rssi_dbm, "dBm", T.rssi_dbm, m.rssi_dbm <= T.rssi_dbm, "Wireless signal strength");
-  else limitations.push("Wireless signal strength is unavailable.");
-  if (m.wifi_retransmission_percent !== undefined) add("wifi_retransmission_percent", m.wifi_retransmission_percent, "%", T.wifi_retransmission_percent, m.wifi_retransmission_percent >= T.wifi_retransmission_percent, "Wi-Fi retransmission rate");
-  else limitations.push("Wi-Fi retransmission telemetry is unavailable.");
-  if (m.dns_failure_percent !== undefined) add("dns_failure_percent", m.dns_failure_percent, "%", T.dns_failure_percent, m.dns_failure_percent >= T.dns_failure_percent, "DNS failure rate");
-  else limitations.push("DNS failure telemetry is unavailable.");
-  if (m.dhcp_failure_percent !== undefined) add("dhcp_failure_percent", m.dhcp_failure_percent, "%", T.dhcp_failure_percent, m.dhcp_failure_percent >= T.dhcp_failure_percent, "DHCP failure rate");
-  else limitations.push("DHCP failure telemetry is unavailable.");
-  if (m.packet_loss_percent !== undefined) add("packet_loss_percent", m.packet_loss_percent, "%", T.packet_loss_percent, m.packet_loss_percent >= T.packet_loss_percent, "Packet loss");
-  else limitations.push("Packet-loss telemetry is unavailable.");
-  if (m.latency_ms !== undefined) add("latency_ms", m.latency_ms, "ms", T.latency_ms, m.latency_ms >= T.latency_ms, "Latency");
-  else limitations.push("Latency telemetry is unavailable.");
-  if (telemetry.device_status === "down" || telemetry.interface_status === "down" || telemetry.interface_status === "admin_down") {
-    observations.push("Device or interface state indicates a connectivity interruption.");
+
+  if (metrics.packet_loss_percent !== undefined) {
+    if (metrics.packet_loss_percent > 2) {
+      evidence.push(`Connectivity: Packet loss is ${metrics.packet_loss_percent}%.`);
+      observations.push("Elevated packet loss indicates degraded device-level connectivity.");
+    } else {
+      evidence.push(`Connectivity: Packet loss is ${metrics.packet_loss_percent}%.`);
+    }
+  } else {
+    limitations.push("Packet-loss telemetry is unavailable.");
   }
-  if (telemetry.neighbors?.length) evidence.push(`Known neighboring devices: ${telemetry.neighbors.join(", ")}.`);
-  else limitations.push("Neighbor and path topology data is unavailable; end-to-end affected paths cannot be confirmed.");
+
+  if (metrics.latency_ms !== undefined) {
+    if (metrics.latency_ms > 100) {
+      evidence.push(`Connectivity: Latency is ${metrics.latency_ms} ms.`);
+      observations.push("Elevated latency indicates possible path or device-level performance degradation.");
+    } else {
+      evidence.push(`Connectivity: Latency is ${metrics.latency_ms} ms.`);
+    }
+  } else {
+    limitations.push("Latency telemetry is unavailable.");
+  }
+
+  if (metrics.interface_errors !== undefined) {
+    if (metrics.interface_errors > 0) {
+      evidence.push(`Connectivity: Interface errors count is ${metrics.interface_errors}.`);
+      observations.push("Interface errors may contribute to connectivity instability.");
+    } else {
+      evidence.push("Connectivity: No interface errors were reported in this snapshot.");
+    }
+  } else {
+    limitations.push("Interface error counters are unavailable.");
+  }
+
+  limitations.push(
+    "Network topology, neighbouring devices, and end-to-end reachability data were not supplied; affected network paths cannot be established."
+  );
+
   return {
     agent: "connectivity-agent",
-    observation: observations.length ? observations.join(" ") : "No connectivity-specific threshold breach was identified; this does not prove end-to-end reachability.",
-    evidence, limitations, structured_evidence: structured,
+    observation: observations.length > 0
+      ? observations.join(" ")
+      : "No elevated connectivity symptoms were identified in the available device-level metrics. This does not prove end-to-end reachability.",
+    evidence,
+    limitations,
   };
 }

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { validateTelemetry, validateTelemetryTolerant } from "@/src/netcoop/telemetry";
-import { getRegisteredAgents } from "@/src/netcoop/agents/agent-registry";
+import { validateTelemetry } from "@/src/netcoop/telemetry";
 import { runInvestigationCoordinator } from "@/src/netcoop/agents/investigation-coordinator";
 
 export async function GET() {
@@ -8,10 +7,7 @@ export async function GET() {
     name: "NetCoop AI Diagnosis API",
     status: "ready",
     mode: "multi-agent-investigation",
-    protocol_version: "1.0",
-    telemetry_schema_version: "1.0",
-    agents: getRegisteredAgents(),
-    ingestion_modes: ["strict", "tolerant"],
+    agents: ["performance-agent", "infrastructure-agent", "connectivity-agent", "fault-correlation-agent", "hypothesis-agent", "verification-agent", "coordinator"],
   });
 }
 
@@ -55,15 +51,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const ingestionMode = typeof body === "object" && body !== null && !Array.isArray(body)
-    ? (body as Record<string, unknown>).ingestion_mode
-    : undefined;
-  const telemetryInput = typeof body === "object" && body !== null && !Array.isArray(body)
-    ? Object.fromEntries(Object.entries(body as Record<string, unknown>).filter(([key]) => key !== "ingestion_mode"))
-    : body;
-  const validation = ingestionMode === "tolerant"
-    ? validateTelemetryTolerant(telemetryInput)
-    : validateTelemetry(telemetryInput);
+  const validation = validateTelemetry(body);
 
   if (!validation.valid) {
     return NextResponse.json(
@@ -82,14 +70,9 @@ export async function POST(request: Request) {
       {
         message: "Investigation executed successfully.",
         incident: validation.data,
-        ingestion: {
-          mode: ingestionMode === "tolerant" ? "tolerant" : "strict",
-          warnings: "issues" in validation ? validation.issues : [],
-        },
         investigation: {
-          status: report.execution_status ?? "completed",
+          status: "completed",
           agents_executed: [...new Set([...report.findings.map((finding) => finding.agent), ...(report.hypotheses.length ? ["hypothesis-agent"] : []), ...(report.verifications.length ? ["verification-agent"] : []), "coordinator"])],
-          agent_failures: report.agent_failures ?? [],
           report,
         },
       },
